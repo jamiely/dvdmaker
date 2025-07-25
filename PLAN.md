@@ -114,19 +114,19 @@
 ## Phase 5: Configuration Management
 
 ### 5.1 Settings (src/config/settings.py)
-- [ ] Create Settings dataclass with Pydantic validation
-  - [ ] cache_dir: Path
-  - [ ] output_dir: Path
-  - [ ] temp_dir: Path
-  - [ ] bin_dir: Path
-  - [ ] log_dir: Path
-  - [ ] log_level: str
-  - [ ] log_file_max_size: int
-  - [ ] log_file_backup_count: int
-  - [ ] download_rate_limit: str
-  - [ ] video_quality: str
-- [ ] Create configuration loading from files/environment
-- [ ] Create configuration validation
+- [x] Create Settings dataclass with Pydantic validation
+  - [x] cache_dir: Path
+  - [x] output_dir: Path
+  - [x] temp_dir: Path
+  - [x] bin_dir: Path
+  - [x] log_dir: Path
+  - [x] log_level: str
+  - [x] log_file_max_size: int
+  - [x] log_file_backup_count: int
+  - [x] download_rate_limit: str
+  - [x] video_quality: str
+- [x] Create configuration loading from files/environment
+- [x] Create configuration validation
 
 ## Phase 6: Tool Management
 
