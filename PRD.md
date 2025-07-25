@@ -21,10 +21,10 @@ A Python command-line tool that converts YouTube playlists into physical DVDs by
 - Generate thumbnails for DVD menus
 
 ### 3. DVD Authoring
-- Use `dvdauthor` to create DVD structure
+- Use `dvdauthor` to create DVD structure with single title
 - Generate interactive DVD menus
-- Create chapter points for navigation
-- Handle multiple videos as separate titles or chapters
+- Create chapter points for navigation where each playlist video becomes a chapter
+- Combine all playlist videos into a single DVD title with sequential chapters
 - Warn users when playlist exceeds DVD capacity (4.7GB single layer)
 - Create DVDs with successfully downloaded videos (continue with partial playlists)
 

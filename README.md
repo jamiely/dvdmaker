@@ -6,7 +6,7 @@ Convert YouTube playlists into physical DVDs.
 
 - Download YouTube playlists using yt-dlp
 - Convert videos to DVD-compatible format using ffmpeg
-- Create DVD structure using dvdauthor
+- Create DVD structure with single title and multiple chapters (one per video)
 - Intelligent file caching to avoid redundant operations
 - ASCII filename normalization for DVD compatibility
 - Cross-platform support (Linux, macOS)

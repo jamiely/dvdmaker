@@ -61,14 +61,14 @@
   - [x] get_failed_videos() -> List[VideoMetadata]
 
 ### 2.3 DVD Models (src/models/dvd.py)
-- [ ] Create DVDTitle dataclass
-  - [ ] title_number: int
-  - [ ] video_file: VideoFile
-  - [ ] chapters: List[int]
-- [ ] Create DVDStructure dataclass
-  - [ ] titles: List[DVDTitle]
-  - [ ] menu_title: str
-  - [ ] total_size: int
+- [x] Create DVDChapter dataclass
+  - [x] chapter_number: int
+  - [x] video_file: VideoFile
+  - [x] start_time: int (for concatenated video)
+- [x] Create DVDStructure dataclass
+  - [x] chapters: List[DVDChapter] (single title with multiple chapters)
+  - [x] menu_title: str
+  - [x] total_size: int
 
 ## Phase 3: Utility Functions
 
@@ -207,7 +207,7 @@
 - [ ] Implement dvdauthor integration
   - [ ] Create DVD menu structure
   - [ ] Generate VIDEO_TS directory structure
-  - [ ] Handle multiple videos as titles/chapters (maintain playlist order)
+  - [ ] Handle multiple videos as chapters in single title (maintain playlist order)
   - [ ] Apply ASCII filename normalization
   - [ ] Warn users when playlist exceeds DVD capacity (4.7GB)
   - [ ] Create DVDs with successfully processed videos only
