@@ -43,22 +43,22 @@
   - [x] format: str
 
 ### 2.2 Playlist Models (src/models/playlist.py)
-- [ ] Create PlaylistMetadata dataclass
-  - [ ] playlist_id: str (YouTube playlist ID format)
-  - [ ] title: str
-  - [ ] description: Optional[str]
-  - [ ] video_count: int
-  - [ ] total_size_estimate: Optional[int] (for DVD capacity warnings)
-- [ ] Create VideoStatus enum for tracking video availability
-  - [ ] AVAILABLE, MISSING, PRIVATE, FAILED, DOWNLOADING, DOWNLOADED
-- [ ] Create Playlist dataclass
-  - [ ] metadata: PlaylistMetadata
-  - [ ] videos: List[VideoMetadata] (maintain original ordering)
-  - [ ] video_statuses: Dict[str, VideoStatus] (video_id -> status mapping)
-- [ ] Add playlist validation methods
-  - [ ] check_dvd_capacity() -> bool (warn if > 4.7GB)
-  - [ ] get_available_videos() -> List[VideoMetadata]
-  - [ ] get_failed_videos() -> List[VideoMetadata]
+- [x] Create PlaylistMetadata dataclass
+  - [x] playlist_id: str (YouTube playlist ID format)
+  - [x] title: str
+  - [x] description: Optional[str]
+  - [x] video_count: int
+  - [x] total_size_estimate: Optional[int] (for DVD capacity warnings)
+- [x] Create VideoStatus enum for tracking video availability
+  - [x] AVAILABLE, MISSING, PRIVATE, FAILED, DOWNLOADING, DOWNLOADED
+- [x] Create Playlist dataclass
+  - [x] metadata: PlaylistMetadata
+  - [x] videos: List[VideoMetadata] (maintain original ordering)
+  - [x] video_statuses: Dict[str, VideoStatus] (video_id -> status mapping)
+- [x] Add playlist validation methods
+  - [x] check_dvd_capacity() -> bool (warn if > 4.7GB)
+  - [x] get_available_videos() -> List[VideoMetadata]
+  - [x] get_failed_videos() -> List[VideoMetadata]
 
 ### 2.3 DVD Models (src/models/dvd.py)
 - [ ] Create DVDTitle dataclass
