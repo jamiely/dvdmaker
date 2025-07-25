@@ -7,6 +7,10 @@ from typing import Dict, Optional
 
 from unidecode import unidecode
 
+from .logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class FilenameMapper:
     """Manages mapping between original video IDs and normalized filenames."""
@@ -24,23 +28,47 @@ class FilenameMapper:
 
     def load_mapping(self) -> None:
         """Load filename mappings from disk."""
+        logger.trace(  # type: ignore[attr-defined]
+            f"Loading filename mapping from {self.mapping_file}"
+        )
+
         if self.mapping_file.exists():
             try:
                 with open(self.mapping_file, "r", encoding="utf-8") as f:
                     self._mapping = json.load(f)
                     self._reverse_mapping = {v: k for k, v in self._mapping.items()}
-            except (json.JSONDecodeError, IOError):
+                logger.debug(
+                    f"Loaded {len(self._mapping)} filename mappings from "
+                    f"{self.mapping_file}"
+                )
+            except (json.JSONDecodeError, IOError) as e:
                 # If file is corrupted, start fresh
+                logger.warning(
+                    f"Failed to load filename mapping from {self.mapping_file}: {e}, "
+                    f"starting fresh"
+                )
                 self._mapping = {}
                 self._reverse_mapping = {}
+        else:
+            logger.debug(
+                f"Filename mapping file {self.mapping_file} does not exist, "
+                f"starting with empty mapping"
+            )
 
     def save_mapping(self) -> None:
         """Save filename mappings to disk."""
+        logger.trace(  # type: ignore[attr-defined]
+            f"Saving filename mapping to {self.mapping_file}"
+        )
         self.mapping_file.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(self.mapping_file, "w", encoding="utf-8") as f:
                 json.dump(self._mapping, f, indent=2, ensure_ascii=False)
+            logger.debug(
+                f"Saved {len(self._mapping)} filename mappings to {self.mapping_file}"
+            )
         except IOError as e:
+            logger.error(f"Failed to save filename mapping to {self.mapping_file}: {e}")
             raise RuntimeError(f"Failed to save filename mapping: {e}")
 
     def get_normalized_filename(self, video_id: str, original_title: str) -> str:
@@ -53,11 +81,23 @@ class FilenameMapper:
         Returns:
             The normalized filename
         """
+        logger.trace(  # type: ignore[attr-defined]
+            f"Getting normalized filename for video_id={video_id}, "
+            f"title='{original_title}'"
+        )
+
         if video_id in self._mapping:
-            return self._mapping[video_id]
+            existing_filename = self._mapping[video_id]
+            logger.debug(
+                f"Found existing filename mapping for {video_id}: {existing_filename}"
+            )
+            return existing_filename
 
         # Generate new normalized filename
         normalized = normalize_filename(original_title)
+        logger.trace(  # type: ignore[attr-defined]
+            f"Normalized title '{original_title}' to '{normalized}'"
+        )
 
         # Ensure uniqueness
         unique_normalized = self._ensure_unique_filename(normalized)
@@ -65,6 +105,7 @@ class FilenameMapper:
         # Store mapping
         self._mapping[video_id] = unique_normalized
         self._reverse_mapping[unique_normalized] = video_id
+        logger.debug(f"Created new filename mapping: {video_id} -> {unique_normalized}")
 
         return unique_normalized
 
@@ -77,7 +118,16 @@ class FilenameMapper:
         Returns:
             The video ID if found, None otherwise
         """
-        return self._reverse_mapping.get(normalized_filename)
+        video_id = self._reverse_mapping.get(normalized_filename)
+        if video_id:
+            logger.trace(  # type: ignore[attr-defined]
+                f"Found video_id {video_id} for filename '{normalized_filename}'"
+            )
+        else:
+            logger.trace(  # type: ignore[attr-defined]
+                f"No video_id found for filename '{normalized_filename}'"
+            )
+        return video_id
 
     def _ensure_unique_filename(self, filename: str) -> str:
         """Ensure filename is unique by adding suffix if needed.
@@ -89,7 +139,14 @@ class FilenameMapper:
             A unique filename
         """
         if filename not in self._reverse_mapping:
+            logger.trace(  # type: ignore[attr-defined]
+                f"Filename '{filename}' is unique"
+            )
             return filename
+
+        logger.trace(  # type: ignore[attr-defined]
+            f"Filename '{filename}' already exists, finding unique variant"
+        )
 
         # Extract name and extension
         path = Path(filename)
@@ -101,6 +158,9 @@ class FilenameMapper:
         while True:
             candidate = f"{name}_{counter}{suffix}"
             if candidate not in self._reverse_mapping:
+                logger.debug(
+                    f"Generated unique filename: '{filename}' -> '{candidate}'"
+                )
                 return candidate
             counter += 1
 
@@ -115,7 +175,14 @@ def normalize_to_ascii(text: str) -> str:
         ASCII-normalized text
     """
     if not text:
+        logger.trace(  # type: ignore[attr-defined]
+            "normalize_to_ascii called with empty text"
+        )
         return ""
+
+    logger.trace(  # type: ignore[attr-defined]
+        f"Normalizing text to ASCII: '{text[:50]}{'...' if len(text) > 50 else ''}'"
+    )
 
     # Use unidecode to convert Unicode to ASCII
     ascii_text = unidecode(text)
@@ -123,6 +190,10 @@ def normalize_to_ascii(text: str) -> str:
     # Remove any remaining non-ASCII characters
     ascii_text = re.sub(r"[^\x00-\x7F]+", "", ascii_text)
 
+    logger.trace(  # type: ignore[attr-defined]
+        f"ASCII normalization result: '{ascii_text[:50]}"
+        f"{'...' if len(ascii_text) > 50 else ''}'"
+    )
     return ascii_text
 
 
@@ -137,7 +208,15 @@ def sanitize_filename(filename: str, max_length: int = 100) -> str:
         Sanitized filename
     """
     if not filename:
+        logger.trace(  # type: ignore[attr-defined]
+            "sanitize_filename called with empty filename"
+        )
         return "untitled"
+
+    logger.trace(  # type: ignore[attr-defined]
+        f"Sanitizing filename: '{filename}' (max_length={max_length})"
+    )
+    original_filename = filename
 
     # Remove or replace problematic characters
     # Replace multiple whitespace with single space
@@ -154,6 +233,9 @@ def sanitize_filename(filename: str, max_length: int = 100) -> str:
 
     # Ensure we don't have only dots or empty string
     if not sanitized or sanitized == "." or sanitized == "..":
+        logger.debug(
+            f"Filename '{original_filename}' sanitized to 'untitled' (invalid result)"
+        )
         sanitized = "untitled"
 
     # Truncate if too long, preserving extension
@@ -167,9 +249,24 @@ def sanitize_filename(filename: str, max_length: int = 100) -> str:
         if available_length > 0:
             truncated_name = name[:available_length].rstrip()
             sanitized = f"{truncated_name}{suffix}"
+            logger.debug(
+                f"Filename truncated to fit max_length: '{original_filename}' -> "
+                f"'{sanitized}'"
+            )
         else:
             # Suffix is too long, just truncate everything
             sanitized = sanitized[:max_length]
+            logger.debug(
+                f"Filename truncated (including suffix): '{original_filename}' -> "
+                f"'{sanitized}'"
+            )
+
+    if sanitized != original_filename:
+        logger.debug(f"Filename sanitized: '{original_filename}' -> '{sanitized}'")
+    else:
+        logger.trace(  # type: ignore[attr-defined]
+            f"Filename required no sanitization: '{filename}'"
+        )
 
     return sanitized
 
@@ -184,7 +281,13 @@ def normalize_filename(original_title: str, max_length: int = 100) -> str:
     Returns:
         Normalized filename suitable for DVD filesystem
     """
+    logger.trace(  # type: ignore[attr-defined]
+        f"Normalizing filename from title: '{original_title}' "
+        f"(max_length={max_length})"
+    )
+
     if not original_title:
+        logger.debug("Empty title provided, using default filename 'untitled.mp4'")
         return "untitled.mp4"
 
     # First normalize to ASCII
@@ -198,7 +301,11 @@ def normalize_filename(original_title: str, max_length: int = 100) -> str:
     # Add extension if not present
     if not Path(sanitized).suffix:
         sanitized += ".mp4"
+        logger.trace(  # type: ignore[attr-defined]
+            f"Added .mp4 extension to filename: '{sanitized}'"
+        )
 
+    logger.debug(f"Normalized filename: '{original_title}' -> '{sanitized}'")
     return sanitized
 
 
@@ -218,9 +325,20 @@ def generate_unique_filename(
     Raises:
         RuntimeError: If unable to generate unique filename
     """
+    logger.trace(  # type: ignore[attr-defined]
+        f"Generating unique filename from base: '{base_filename}' "
+        f"(checking against {len(existing_files)} existing files)"
+    )
+
     if base_filename not in existing_files:
+        logger.trace(  # type: ignore[attr-defined]
+            f"Base filename '{base_filename}' is already unique"
+        )
         return base_filename
 
+    logger.debug(
+        f"Base filename '{base_filename}' conflicts, generating unique variant"
+    )
     path = Path(base_filename)
     name = path.stem
     suffix = path.suffix
@@ -228,8 +346,16 @@ def generate_unique_filename(
     for i in range(1, max_attempts + 1):
         candidate = f"{name}_{i}{suffix}"
         if candidate not in existing_files:
+            logger.debug(
+                f"Generated unique filename: '{base_filename}' -> '{candidate}' "
+                f"(attempt {i})"
+            )
             return candidate
 
+    logger.error(
+        f"Failed to generate unique filename after {max_attempts} attempts "
+        f"for '{base_filename}'"
+    )
     raise RuntimeError(
         f"Unable to generate unique filename after {max_attempts} attempts"
     )
@@ -244,11 +370,19 @@ def is_valid_filename(filename: str) -> bool:
     Returns:
         True if filename is valid, False otherwise
     """
+    logger.trace(f"Validating filename: '{filename}'")  # type: ignore[attr-defined]
+
     if not filename:
+        logger.trace(  # type: ignore[attr-defined]
+            "Filename validation failed: empty filename"
+        )
         return False
 
     # Check for problematic characters
     if re.search(r'[<>:"/\\|?*\x00-\x1f\x7f-\x9f]', filename):
+        logger.debug(
+            f"Filename validation failed: problematic characters in '{filename}'"
+        )
         return False
 
     # Check for reserved names on Windows
@@ -279,14 +413,29 @@ def is_valid_filename(filename: str) -> bool:
 
     name_without_ext = Path(filename).stem.upper()
     if name_without_ext in reserved_names:
+        logger.debug(
+            f"Filename validation failed: reserved name '{name_without_ext}' "
+            f"in '{filename}'"
+        )
         return False
 
     # Check for leading/trailing dots or spaces
     if filename.startswith(".") or filename.endswith(".") or filename.endswith(" "):
+        logger.debug(
+            f"Filename validation failed: invalid leading/trailing characters "
+            f"in '{filename}'"
+        )
         return False
 
     # Check length (filesystem dependent, but 255 is common limit)
     if len(filename.encode("utf-8")) > 255:
+        logger.debug(
+            f"Filename validation failed: too long "
+            f"({len(filename.encode('utf-8'))} bytes) '{filename}'"
+        )
         return False
 
+    logger.trace(  # type: ignore[attr-defined]
+        f"Filename validation passed: '{filename}'"
+    )
     return True

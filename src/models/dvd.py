@@ -3,7 +3,10 @@
 from dataclasses import dataclass
 from typing import List
 
+from ..utils.logging import get_logger
 from .video import VideoFile
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -16,10 +19,28 @@ class DVDChapter:
 
     def __post_init__(self) -> None:
         """Validate DVD chapter after initialization."""
+        logger.trace(  # type: ignore[attr-defined]
+            f"Validating DVDChapter {self.chapter_number} for video "
+            f"{self.video_file.metadata.video_id}"
+        )
+
         if self.chapter_number <= 0:
+            logger.error(
+                f"DVDChapter validation failed: non-positive chapter_number "
+                f"{self.chapter_number}"
+            )
             raise ValueError("chapter_number must be positive")
         if self.start_time < 0:
+            logger.error(
+                f"DVDChapter validation failed: negative start_time {self.start_time} "
+                f"for chapter {self.chapter_number}"
+            )
             raise ValueError("start_time must be non-negative")
+
+        logger.debug(
+            f"DVDChapter validated: Chapter {self.chapter_number} - "
+            f"{self.video_file.metadata.title} at {self.start_time}s"
+        )
 
     @property
     def duration(self) -> int:
@@ -52,20 +73,38 @@ class DVDStructure:
 
     def __post_init__(self) -> None:
         """Validate DVD structure after initialization."""
+        logger.trace(  # type: ignore[attr-defined]
+            f"Validating DVDStructure '{self.menu_title}' with "
+            f"{len(self.chapters)} chapters"
+        )
+
         if not self.chapters:
+            logger.error("DVDStructure validation failed: no chapters provided")
             raise ValueError("DVD must have at least one chapter")
         if not self.menu_title:
+            logger.error("DVDStructure validation failed: empty menu_title")
             raise ValueError("menu_title cannot be empty")
         if self.total_size < 0:
+            logger.error(
+                f"DVDStructure validation failed: negative total_size {self.total_size}"
+            )
             raise ValueError("total_size must be non-negative")
 
         # Validate chapter numbers are unique and sequential
         chapter_numbers = [chapter.chapter_number for chapter in self.chapters]
         if len(set(chapter_numbers)) != len(chapter_numbers):
+            logger.error(
+                f"DVDStructure validation failed: duplicate chapter numbers "
+                f"{chapter_numbers}"
+            )
             raise ValueError("Chapter numbers must be unique")
 
         expected_numbers = list(range(1, len(self.chapters) + 1))
         if sorted(chapter_numbers) != expected_numbers:
+            logger.error(
+                f"DVDStructure validation failed: non-sequential chapter numbers "
+                f"{sorted(chapter_numbers)}, expected {expected_numbers}"
+            )
             raise ValueError("Chapter numbers must be sequential starting from 1")
 
         # Validate start times are in ascending order
@@ -74,9 +113,19 @@ class DVDStructure:
             previous_chapter = self.get_chapter_by_number(i)
 
             if current_chapter.start_time < previous_chapter.end_time:
+                logger.error(
+                    f"DVDStructure validation failed: Chapter {i + 1} start time "
+                    f"{current_chapter.start_time} < Chapter {i} end time "
+                    f"{previous_chapter.end_time}"
+                )
                 raise ValueError(
                     f"Chapter {i + 1} start time conflicts with chapter {i} end time"
                 )
+
+        logger.debug(
+            f"DVDStructure validated: '{self.menu_title}' with "
+            f"{len(self.chapters)} chapters, {self.size_gb:.2f}GB total"
+        )
 
     @property
     def chapter_count(self) -> int:
@@ -111,7 +160,20 @@ class DVDStructure:
         Returns:
             True if DVD structure fits, False otherwise
         """
-        return self.size_gb <= dvd_capacity_gb
+        fits = self.size_gb <= dvd_capacity_gb
+
+        if fits:
+            logger.debug(
+                f"DVD capacity check for '{self.menu_title}': {self.size_gb:.2f}GB "
+                f"fits on {dvd_capacity_gb}GB DVD"
+            )
+        else:
+            logger.warning(
+                f"DVD capacity exceeded for '{self.menu_title}': {self.size_gb:.2f}GB "
+                f"> {dvd_capacity_gb}GB"
+            )
+
+        return fits
 
     def get_chapter_by_number(self, chapter_number: int) -> DVDChapter:
         """Get a chapter by its number.
@@ -127,7 +189,15 @@ class DVDStructure:
         """
         for chapter in self.chapters:
             if chapter.chapter_number == chapter_number:
+                logger.trace(  # type: ignore[attr-defined]
+                    f"Found chapter {chapter_number} in '{self.menu_title}'"
+                )
                 return chapter
+
+        logger.error(
+            f"Chapter {chapter_number} not found in '{self.menu_title}' "
+            f"(available: {[c.chapter_number for c in self.chapters]})"
+        )
         raise ValueError(f"Chapter number {chapter_number} not found")
 
     def get_chapters_ordered(self) -> List[DVDChapter]:

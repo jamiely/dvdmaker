@@ -6,6 +6,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
+from .logging import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class ProgressInfo:
@@ -20,6 +24,10 @@ class ProgressInfo:
         """Initialize details dict if None."""
         if self.details is None:
             self.details = {}
+        logger.trace(  # type: ignore[attr-defined]
+            f"ProgressInfo created: {self.current}/{self.total} "
+            f"({self.percentage:.1f}%) - {self.message}"
+        )
 
     @property
     def percentage(self) -> float:
@@ -86,9 +94,18 @@ class ConsoleProgressCallback(ProgressCallback):
         self.show_percentage = show_percentage
         self._last_line_length = 0
         self._lock = threading.Lock()
+        logger.debug(
+            f"ConsoleProgressCallback initialized with width={width}, "
+            f"show_percentage={show_percentage}"
+        )
 
     def update(self, progress: ProgressInfo) -> None:
         """Update progress display."""
+        logger.trace(  # type: ignore[attr-defined]
+            f"ConsoleProgressCallback update: {progress.current}/{progress.total} "
+            f"({progress.percentage:.1f}%)"
+        )
+
         with self._lock:
             # Calculate progress bar
             filled_width = int((progress.percentage / 100.0) * self.width)
@@ -116,6 +133,8 @@ class ConsoleProgressCallback(ProgressCallback):
 
     def complete(self, message: str = "") -> None:
         """Signal completion."""
+        logger.debug(f"ConsoleProgressCallback complete: {message}")
+
         with self._lock:
             # Clear the progress line
             sys.stdout.write("\r" + " " * self._last_line_length + "\r")
@@ -129,6 +148,8 @@ class ConsoleProgressCallback(ProgressCallback):
 
     def error(self, message: str) -> None:
         """Signal error."""
+        logger.error(f"ConsoleProgressCallback error: {message}")
+
         with self._lock:
             # Clear the progress line
             sys.stdout.write("\r" + " " * self._last_line_length + "\r")
@@ -139,17 +160,28 @@ class ConsoleProgressCallback(ProgressCallback):
 class SilentProgressCallback(ProgressCallback):
     """Progress callback that does nothing (for testing or silent operation)."""
 
+    def __init__(self) -> None:
+        """Initialize silent progress callback."""
+        logger.trace("SilentProgressCallback initialized")  # type: ignore[attr-defined]
+
     def update(self, progress: ProgressInfo) -> None:
         """Do nothing."""
-        pass
+        logger.trace(  # type: ignore[attr-defined]
+            f"SilentProgressCallback update (ignored): {progress.current}/"
+            f"{progress.total}"
+        )
 
     def complete(self, message: str = "") -> None:
         """Do nothing."""
-        pass
+        logger.trace(  # type: ignore[attr-defined]
+            f"SilentProgressCallback complete (ignored): {message}"
+        )
 
     def error(self, message: str) -> None:
         """Do nothing."""
-        pass
+        logger.trace(  # type: ignore[attr-defined]
+            f"SilentProgressCallback error (ignored): {message}"
+        )
 
 
 class CallbackProgressCallback(ProgressCallback):
@@ -171,19 +203,30 @@ class CallbackProgressCallback(ProgressCallback):
         self.update_fn = update_fn
         self.complete_fn = complete_fn
         self.error_fn = error_fn
+        logger.debug(
+            f"CallbackProgressCallback initialized with "
+            f"update_fn={update_fn is not None}, "
+            f"complete_fn={complete_fn is not None}, "
+            f"error_fn={error_fn is not None}"
+        )
 
     def update(self, progress: ProgressInfo) -> None:
         """Call update function if provided."""
+        logger.trace(  # type: ignore[attr-defined]
+            f"CallbackProgressCallback update: {progress.current}/{progress.total}"
+        )
         if self.update_fn:
             self.update_fn(progress)
 
     def complete(self, message: str = "") -> None:
         """Call complete function if provided."""
+        logger.debug(f"CallbackProgressCallback complete: {message}")
         if self.complete_fn:
             self.complete_fn(message)
 
     def error(self, message: str) -> None:
         """Call error function if provided."""
+        logger.error(f"CallbackProgressCallback error: {message}")
         if self.error_fn:
             self.error_fn(message)
 
@@ -211,6 +254,10 @@ class ProgressTracker:
         self.details: Dict[str, Any] = {}
         self._cancelled = False
         self._lock = threading.Lock()
+        logger.debug(
+            f"ProgressTracker initialized: total={total}, "
+            f"callback={type(self.callback).__name__}, message='{initial_message}'"
+        )
 
     def update(self, increment: int = 1, message: str = "", **details: Any) -> None:
         """Update progress.
@@ -222,8 +269,12 @@ class ProgressTracker:
         """
         with self._lock:
             if self._cancelled:
+                logger.trace(  # type: ignore[attr-defined]
+                    "ProgressTracker update ignored (cancelled)"
+                )
                 return
 
+            old_current = self.current
             self.current = min(self.total, self.current + increment)
 
             if message:
@@ -239,6 +290,10 @@ class ProgressTracker:
                 details=self.details.copy(),
             )
 
+            logger.trace(  # type: ignore[attr-defined]
+                f"ProgressTracker update: {old_current} -> {self.current}/"
+                f"{self.total} (+{increment})"
+            )
             self.callback.update(progress)
 
     def set_progress(self, current: int, message: str = "", **details: Any) -> None:
@@ -278,9 +333,13 @@ class ProgressTracker:
         """
         with self._lock:
             if self._cancelled:
+                logger.trace(  # type: ignore[attr-defined]
+                    "ProgressTracker complete ignored (cancelled)"
+                )
                 return
 
             self.current = self.total
+            logger.debug(f"ProgressTracker completed: {message}")
             self.callback.complete(message)
 
     def error(self, message: str) -> None:
@@ -290,11 +349,13 @@ class ProgressTracker:
             message: Error message
         """
         with self._lock:
+            logger.error(f"ProgressTracker error: {message}")
             self.callback.error(message)
 
     def cancel(self) -> None:
         """Cancel the operation."""
         with self._lock:
+            logger.debug("ProgressTracker cancelled")
             self._cancelled = True
 
     @property
@@ -331,6 +392,10 @@ class MultiStepProgressTracker:
         self.step_progress: Dict[str, int] = {step: 0 for step in steps}
         self.callback = callback or SilentProgressCallback()
         self._lock = threading.Lock()
+        logger.debug(
+            f"MultiStepProgressTracker initialized: {len(steps)} steps, "
+            f"total_weight={self.total_weight}, steps={list(steps.keys())}"
+        )
 
     def start_step(self, step_name: str, message: str = "") -> None:
         """Start a new step.
@@ -341,9 +406,18 @@ class MultiStepProgressTracker:
         """
         with self._lock:
             if step_name not in self.steps:
+                logger.error(
+                    f"MultiStepProgressTracker: Unknown step '{step_name}', "
+                    f"available: {list(self.steps.keys())}"
+                )
                 raise ValueError(f"Unknown step: {step_name}")
 
+            old_step = self.current_step
             self.current_step = step_name
+            logger.debug(
+                f"MultiStepProgressTracker started step: '{old_step}' -> "
+                f"'{step_name}' - {message}"
+            )
             self._update_progress(message)
 
     def update_step(self, progress: int, message: str = "") -> None:
@@ -355,10 +429,20 @@ class MultiStepProgressTracker:
         """
         with self._lock:
             if not self.current_step:
+                logger.trace(  # type: ignore[attr-defined]
+                    "MultiStepProgressTracker update_step ignored (no current step)"
+                )
                 return
 
             step_weight = self.steps[self.current_step]
+            old_progress = self.step_progress[self.current_step]
             self.step_progress[self.current_step] = min(step_weight, max(0, progress))
+
+            logger.trace(  # type: ignore[attr-defined]
+                f"MultiStepProgressTracker step '{self.current_step}' progress: "
+                f"{old_progress} -> {self.step_progress[self.current_step]}/"
+                f"{step_weight}"
+            )
             self._update_progress(message)
 
     def complete_step(self, message: str = "") -> None:
@@ -369,10 +453,17 @@ class MultiStepProgressTracker:
         """
         with self._lock:
             if not self.current_step:
+                logger.trace(  # type: ignore[attr-defined]
+                    "MultiStepProgressTracker complete_step ignored (no current step)"
+                )
                 return
 
             step_weight = self.steps[self.current_step]
             self.step_progress[self.current_step] = step_weight
+            logger.debug(
+                f"MultiStepProgressTracker completed step '{self.current_step}' "
+                f"({step_weight}/{step_weight}) - {message}"
+            )
             self._update_progress(message)
 
     def _update_progress(self, message: str) -> None:
@@ -389,6 +480,10 @@ class MultiStepProgressTracker:
             },
         )
 
+        logger.trace(  # type: ignore[attr-defined]
+            f"MultiStepProgressTracker overall progress: {current_total}/"
+            f"{self.total_weight} ({progress.percentage:.1f}%)"
+        )
         self.callback.update(progress)
 
     def complete(self, message: str = "") -> None:
@@ -402,6 +497,7 @@ class MultiStepProgressTracker:
             for step in self.steps:
                 self.step_progress[step] = self.steps[step]
 
+            logger.debug(f"MultiStepProgressTracker completed all steps - {message}")
             self.callback.complete(message)
 
     def error(self, message: str) -> None:
@@ -411,4 +507,5 @@ class MultiStepProgressTracker:
             message: Error message
         """
         with self._lock:
+            logger.error(f"MultiStepProgressTracker error: {message}")
             self.callback.error(message)
