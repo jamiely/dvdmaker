@@ -12,10 +12,11 @@ This is a Python command-line tool that converts YouTube playlists into physical
 - **Dependency Injection**: For testability and maintainability
 
 ## Development Environment
-- Use virtual environment (venv) for dependency isolation
-- Standard pip dependency management with requirements.txt and requirements-dev.txt
+- Use virtual environment (venv) for dependency isolation: `python -m venv venv && source venv/bin/activate`
+- Install dependencies: `pip install -r requirements.txt && pip install -r requirements-dev.txt`
 - Code quality tools: Black (formatting), isort (imports), flake8 (linting), mypy (typing)
 - Testing: pytest with >90% coverage requirement
+- Use Makefile for common tasks: `make help` for available commands
 
 ## File Organization
 ```
@@ -41,19 +42,32 @@ src/
 - Maintain >90% test coverage
 
 ## Quality Checks
-Before commits, always run:
+Use Makefile commands for development workflow:
 ```bash
-black src/ tests/
-isort src/ tests/
-flake8 src/ tests/
-mypy src/
-pytest --cov=src
+make format    # Format code with black and isort
+make lint      # Run flake8 linting
+make typecheck # Run mypy type checking
+make test      # Run tests with pytest
+make coverage  # Run tests with coverage report
+make check     # Run all quality checks (recommended before commits)
+make clean     # Clean up generated files
 ```
 
 ## External Dependencies
 - yt-dlp: YouTube video downloading (auto-downloadable)
 - ffmpeg: Video processing (auto-downloadable)  
 - dvdauthor: DVD creation (system installation required)
+
+## Implementation Progress
+
+**Important**: All implementation tasks and progress tracking are managed in `PLAN.md`. When completing tasks, always update the checkboxes in `PLAN.md` to mark items as complete `[x]`.
+
+See `PLAN.md` for:
+- Detailed 12-phase implementation plan
+- Nested todo lists with specific tasks
+- Dependencies between phases
+- Estimated timeline
+- Current progress status
 
 ## Error Handling
 - Graceful failure when tools unavailable

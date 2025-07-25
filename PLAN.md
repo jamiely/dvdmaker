@@ -28,29 +28,37 @@
 ## Phase 2: Core Models & Data Structures
 
 ### 2.1 Video Models (src/models/video.py)
-- [ ] Create VideoMetadata dataclass with type hints
-  - [ ] video_id: str
-  - [ ] title: str
-  - [ ] duration: int
-  - [ ] url: str
-  - [ ] thumbnail_url: Optional[str]
-  - [ ] description: Optional[str]
-- [ ] Create VideoFile dataclass
-  - [ ] metadata: VideoMetadata
-  - [ ] file_path: Path
-  - [ ] file_size: int
-  - [ ] checksum: str
-  - [ ] format: str
+- [x] Create VideoMetadata dataclass with type hints
+  - [x] video_id: str
+  - [x] title: str
+  - [x] duration: int
+  - [x] url: str
+  - [x] thumbnail_url: Optional[str]
+  - [x] description: Optional[str]
+- [x] Create VideoFile dataclass
+  - [x] metadata: VideoMetadata
+  - [x] file_path: Path
+  - [x] file_size: int
+  - [x] checksum: str
+  - [x] format: str
 
 ### 2.2 Playlist Models (src/models/playlist.py)
 - [ ] Create PlaylistMetadata dataclass
-  - [ ] playlist_id: str
+  - [ ] playlist_id: str (YouTube playlist ID format)
   - [ ] title: str
   - [ ] description: Optional[str]
   - [ ] video_count: int
+  - [ ] total_size_estimate: Optional[int] (for DVD capacity warnings)
+- [ ] Create VideoStatus enum for tracking video availability
+  - [ ] AVAILABLE, MISSING, PRIVATE, FAILED, DOWNLOADING, DOWNLOADED
 - [ ] Create Playlist dataclass
   - [ ] metadata: PlaylistMetadata
-  - [ ] videos: List[VideoMetadata]
+  - [ ] videos: List[VideoMetadata] (maintain original ordering)
+  - [ ] video_statuses: Dict[str, VideoStatus] (video_id -> status mapping)
+- [ ] Add playlist validation methods
+  - [ ] check_dvd_capacity() -> bool (warn if > 4.7GB)
+  - [ ] get_available_videos() -> List[VideoMetadata]
+  - [ ] get_failed_videos() -> List[VideoMetadata]
 
 ### 2.3 DVD Models (src/models/dvd.py)
 - [ ] Create DVDTitle dataclass
@@ -151,22 +159,26 @@
 - [ ] Create VideoDownloader class
 - [ ] Implement yt-dlp integration
   - [ ] Configure yt-dlp options (cache-dir, limit-rate, etc.)
-  - [ ] Handle playlist extraction
+  - [ ] Handle playlist extraction (maintain original video ordering)
   - [ ] Download individual videos
-  - [ ] Extract metadata
+  - [ ] Extract metadata from yt-dlp only
+  - [ ] Handle missing/private videos gracefully with status logging
+  - [ ] Detect and handle playlist changes between runs
 - [ ] Implement caching integration
   - [ ] Check cache before downloading
   - [ ] Store downloads in cache
   - [ ] Handle in-progress downloads
 - [ ] Add progress reporting
-- [ ] Add comprehensive error handling
+- [ ] Add comprehensive error handling for partial playlist success
 
 ### 7.2 Downloader Tests
 - [ ] Test playlist extraction with mocked yt-dlp
 - [ ] Test video downloading with cache integration
 - [ ] Test progress reporting
-- [ ] Test error scenarios
+- [ ] Test error scenarios (missing/private videos)
 - [ ] Test rate limiting
+- [ ] Test playlist change detection
+- [ ] Test partial playlist success scenarios
 
 ## Phase 8: Video Processing
 
@@ -195,8 +207,10 @@
 - [ ] Implement dvdauthor integration
   - [ ] Create DVD menu structure
   - [ ] Generate VIDEO_TS directory structure
-  - [ ] Handle multiple videos as titles/chapters
+  - [ ] Handle multiple videos as titles/chapters (maintain playlist order)
   - [ ] Apply ASCII filename normalization
+  - [ ] Warn users when playlist exceeds DVD capacity (4.7GB)
+  - [ ] Create DVDs with successfully processed videos only
 - [ ] Implement ISO generation (optional)
 - [ ] Add validation of final DVD structure
 
@@ -206,6 +220,8 @@
 - [ ] Test filename normalization integration
 - [ ] Test ISO generation
 - [ ] Test validation logic
+- [ ] Test DVD capacity warnings
+- [ ] Test partial playlist DVD creation
 
 ## Phase 10: CLI Interface
 

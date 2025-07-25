@@ -8,8 +8,11 @@ A Python command-line tool that converts YouTube playlists into physical DVDs by
 ### 1. Video Download
 - Use `yt-dlp` to download all videos from a YouTube playlist
 - Support various video qualities and formats
-- Handle playlist metadata (titles, descriptions, thumbnails)
+- Handle playlist metadata (titles, descriptions, thumbnails) from yt-dlp only
 - Provide download progress indication
+- Maintain original playlist video ordering for DVD chapter sequence
+- Handle missing/private videos gracefully with status logging
+- Use latest playlist state for each run (detect playlist changes)
 
 ### 2. Video Processing
 - Use `ffmpeg` to convert videos to DVD-compatible format (MPEG-2, 720x480/720x576)
@@ -22,6 +25,8 @@ A Python command-line tool that converts YouTube playlists into physical DVDs by
 - Generate interactive DVD menus
 - Create chapter points for navigation
 - Handle multiple videos as separate titles or chapters
+- Warn users when playlist exceeds DVD capacity (4.7GB single layer)
+- Create DVDs with successfully downloaded videos (continue with partial playlists)
 
 ### 4. File Caching System
 - Implement intelligent file caching to avoid redundant operations
@@ -37,6 +42,13 @@ A Python command-line tool that converts YouTube playlists into physical DVDs by
 - Maintain mapping between original video IDs and normalized filenames
 - Ensure caching system uses original video IDs as keys
 - Apply normalization only to final DVD structure, not cache files
+
+### 6. Playlist Management
+- Use YouTube playlist IDs (e.g., PLrAXtmRdnqeiGF0lEzfz7) as primary identifiers
+- Cache playlist metadata alongside individual video metadata
+- Maintain video ordering from original playlist
+- Log status of missing/private/failed videos for user visibility
+- Always use current playlist state (handle additions/removals between runs)
 
 ## Technical Requirements
 
@@ -254,7 +266,8 @@ make check  # or equivalent script
 ```
 
 ## Constraints
-- DVD capacity constraints (4.7GB single layer)
-- Video quality trade-offs for DVD format
+- DVD capacity constraints (4.7GB single layer) with user warnings
+- Video quality trade-offs for DVD format (no automatic quality adjustment)
 - Dependency on external tools availability
 - Cache storage requirements for large playlists
+- Playlist changes between runs require re-processing
