@@ -131,28 +131,28 @@
 ## Phase 6: Tool Management
 
 ### 6.1 Tool Manager (src/services/tool_manager.py)
-- [ ] Create ToolManager class with dependency injection
-- [ ] Implement tool version checking
-  - [ ] Load tool_versions.json
-  - [ ] Check local bin/ directory for tools
-  - [ ] Verify tool functionality
-- [ ] Implement automatic tool downloading
-  - [ ] Download ffmpeg from official sources
-  - [ ] Download yt-dlp from GitHub releases
-  - [ ] Handle platform-specific binaries
-  - [ ] Make downloaded files executable
-  - [ ] Update tool_versions.json
-- [ ] Implement dvdauthor validation
-  - [ ] Check system PATH for dvdauthor
-  - [ ] Provide installation instructions if missing
-- [ ] Add comprehensive error handling and user messaging
+- [x] Create ToolManager class with dependency injection
+- [x] Implement tool version checking
+  - [x] Load tool_versions.json
+  - [x] Check local bin/ directory for tools
+  - [x] Verify tool functionality
+- [x] Implement automatic tool downloading
+  - [x] Download ffmpeg from official sources
+  - [x] Download yt-dlp from GitHub releases
+  - [x] Handle platform-specific binaries
+  - [x] Make downloaded files executable
+  - [x] Update tool_versions.json
+- [x] Implement dvdauthor validation
+  - [x] Check system PATH for dvdauthor
+  - [x] Provide installation instructions if missing
+- [x] Add comprehensive error handling and user messaging
 
 ### 6.2 Tool Manager Tests
-- [ ] Test tool detection logic
-- [ ] Test download functionality with mocked HTTP requests
-- [ ] Test platform detection
-- [ ] Test error scenarios (network failures, permission issues)
-- [ ] Test tool validation
+- [x] Test tool detection logic
+- [x] Test download functionality with mocked HTTP requests
+- [x] Test platform detection
+- [x] Test error scenarios (network failures, permission issues)
+- [x] Test tool validation
 
 ## Phase 7: Cache Management
 

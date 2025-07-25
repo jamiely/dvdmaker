@@ -1,0 +1,616 @@
+"""Tests for tool manager service."""
+
+import json
+import stat
+import subprocess
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock, mock_open, patch
+
+import pytest
+import requests
+
+from src.config.settings import Settings
+from src.services.tool_manager import (
+    ToolDownloadError,
+    ToolManager,
+    ToolManagerError,
+    ToolValidationError,
+)
+
+
+class TestToolManager:
+    """Test cases for ToolManager class."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.settings = Settings(
+            bin_dir=Path("/tmp/test_bin"), download_tools=True, use_system_tools=False
+        )
+        self.progress_callback = Mock()
+        self.tool_manager = ToolManager(self.settings, self.progress_callback)
+
+    def test_init(self):
+        """Test ToolManager initialization."""
+        assert self.tool_manager.settings == self.settings
+        assert self.tool_manager.progress_callback == self.progress_callback
+        assert self.tool_manager.bin_dir == self.settings.bin_dir
+        assert (
+            self.tool_manager.tool_versions_file
+            == self.settings.bin_dir / "tool_versions.json"
+        )
+
+    @patch("src.services.tool_manager.Path.mkdir")
+    def test_init_creates_bin_directory(self, mock_mkdir):
+        """Test that initialization creates bin directory."""
+        ToolManager(self.settings)
+        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+
+    @patch("pathlib.Path.exists")
+    def test_get_tool_versions_no_file(self, mock_exists):
+        """Test getting tool versions when file doesn't exist."""
+        mock_exists.return_value = False
+        versions = self.tool_manager.get_tool_versions()
+        assert versions == {}
+
+    @patch("pathlib.Path.exists")
+    def test_get_tool_versions_valid_file(self, mock_exists):
+        """Test getting tool versions from valid file."""
+        test_versions = {"ffmpeg": "4.4.0", "yt-dlp": "2023.01.06"}
+        mock_exists.return_value = True
+
+        with patch("builtins.open", mock_open(read_data=json.dumps(test_versions))):
+            versions = self.tool_manager.get_tool_versions()
+            assert versions == test_versions
+
+    @patch("pathlib.Path.exists")
+    def test_get_tool_versions_invalid_file(self, mock_exists):
+        """Test getting tool versions from invalid JSON file."""
+        mock_exists.return_value = True
+
+        with patch("builtins.open", mock_open(read_data="invalid json")):
+            versions = self.tool_manager.get_tool_versions()
+            assert versions == {}
+
+    def test_save_tool_versions(self):
+        """Test saving tool versions."""
+        test_versions = {"ffmpeg": "4.4.0", "yt-dlp": "2023.01.06"}
+
+        mock_file = mock_open()
+        with patch("builtins.open", mock_file):
+            self.tool_manager.save_tool_versions(test_versions)
+
+        mock_file.assert_called_once_with(self.tool_manager.tool_versions_file, "w")
+        written_data = "".join(
+            call.args[0] for call in mock_file().write.call_args_list
+        )
+        assert json.loads(written_data) == test_versions
+
+    def test_save_tool_versions_io_error(self):
+        """Test saving tool versions with IO error."""
+        with patch("builtins.open", side_effect=IOError("Permission denied")):
+            with pytest.raises(ToolManagerError):
+                self.tool_manager.save_tool_versions({})
+
+    def test_get_tool_path(self):
+        """Test getting tool paths."""
+        assert (
+            self.tool_manager.get_tool_path("ffmpeg")
+            == self.settings.bin_dir / "ffmpeg"
+        )
+        assert (
+            self.tool_manager.get_tool_path("yt-dlp")
+            == self.settings.bin_dir / "yt-dlp"
+        )
+
+        with pytest.raises(ValueError):
+            self.tool_manager.get_tool_path("unknown_tool")
+
+    def test_is_tool_available_locally_exists(self):
+        """Test local tool availability when tool exists."""
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "is_file", return_value=True):
+                with patch("os.access", return_value=True):
+                    assert self.tool_manager.is_tool_available_locally("ffmpeg") is True
+
+    def test_is_tool_available_locally_not_exists(self):
+        """Test local tool availability when tool doesn't exist."""
+        with patch.object(Path, "exists", return_value=False):
+            assert self.tool_manager.is_tool_available_locally("ffmpeg") is False
+
+    def test_is_tool_available_locally_not_executable(self):
+        """Test local tool availability when tool is not executable."""
+        with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "is_file", return_value=True):
+                with patch("os.access", return_value=False):
+                    assert (
+                        self.tool_manager.is_tool_available_locally("ffmpeg") is False
+                    )
+
+    @patch("shutil.which")
+    def test_is_tool_available_system(self, mock_which):
+        """Test system tool availability."""
+        # Test regular tool
+        mock_which.return_value = "/usr/bin/ffmpeg"
+        assert self.tool_manager.is_tool_available_system("ffmpeg") is True
+        mock_which.assert_called_with("ffmpeg")
+
+        # Test dvdauthor
+        mock_which.return_value = "/usr/bin/dvdauthor"
+        assert self.tool_manager.is_tool_available_system("dvdauthor") is True
+        mock_which.assert_called_with("dvdauthor")
+
+        # Test missing tool
+        mock_which.return_value = None
+        assert self.tool_manager.is_tool_available_system("ffmpeg") is False
+
+    @patch("subprocess.run")
+    def test_validate_tool_functionality_ffmpeg(self, mock_run):
+        """Test tool functionality validation for ffmpeg."""
+        mock_run.return_value = Mock(returncode=0)
+
+        assert self.tool_manager.validate_tool_functionality("ffmpeg") is True
+        mock_run.assert_called_once_with(
+            ["ffmpeg", "-version"], capture_output=True, text=True, timeout=10
+        )
+
+    @patch("subprocess.run")
+    def test_validate_tool_functionality_ytdlp(self, mock_run):
+        """Test tool functionality validation for yt-dlp."""
+        mock_run.return_value = Mock(returncode=0)
+
+        assert self.tool_manager.validate_tool_functionality("yt-dlp") is True
+        mock_run.assert_called_once_with(
+            ["yt-dlp", "--version"], capture_output=True, text=True, timeout=10
+        )
+
+    @patch("subprocess.run")
+    def test_validate_tool_functionality_dvdauthor(self, mock_run):
+        """Test tool functionality validation for dvdauthor."""
+        mock_run.return_value = Mock(returncode=0)
+
+        assert self.tool_manager.validate_tool_functionality("dvdauthor") is True
+        mock_run.assert_called_once_with(
+            ["dvdauthor", "--help"], capture_output=True, text=True, timeout=10
+        )
+
+    @patch("subprocess.run")
+    def test_validate_tool_functionality_with_path(self, mock_run):
+        """Test tool functionality validation with specific path."""
+        mock_run.return_value = Mock(returncode=0)
+        tool_path = Path("/custom/path/ffmpeg")
+
+        assert (
+            self.tool_manager.validate_tool_functionality("ffmpeg", tool_path) is True
+        )
+        mock_run.assert_called_once_with(
+            ["/custom/path/ffmpeg", "-version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    @patch("subprocess.run")
+    def test_validate_tool_functionality_failure(self, mock_run):
+        """Test tool functionality validation failure."""
+        mock_run.return_value = Mock(returncode=1, stderr="Error")
+
+        assert self.tool_manager.validate_tool_functionality("ffmpeg") is False
+
+    @patch("subprocess.run")
+    def test_validate_tool_functionality_exception(self, mock_run):
+        """Test tool functionality validation with exception."""
+        mock_run.side_effect = subprocess.TimeoutExpired("cmd", 10)
+
+        assert self.tool_manager.validate_tool_functionality("ffmpeg") is False
+
+    def test_validate_tool_functionality_unknown_tool(self):
+        """Test tool functionality validation for unknown tool."""
+        assert self.tool_manager.validate_tool_functionality("unknown") is False
+
+    @patch("subprocess.run")
+    def test_get_tool_version_ffmpeg(self, mock_run):
+        """Test getting ffmpeg version."""
+        mock_run.return_value = Mock(
+            returncode=0, stdout="ffmpeg version 4.4.0-0ubuntu1 Copyright (c) 2000-2021"
+        )
+
+        version = self.tool_manager.get_tool_version("ffmpeg")
+        assert version == "4.4.0-0ubuntu1"
+
+    @patch("subprocess.run")
+    def test_get_tool_version_ytdlp(self, mock_run):
+        """Test getting yt-dlp version."""
+        mock_run.return_value = Mock(returncode=0, stdout="2023.01.06\n")
+
+        version = self.tool_manager.get_tool_version("yt-dlp")
+        assert version == "2023.01.06"
+
+    @patch("subprocess.run")
+    def test_get_tool_version_dvdauthor(self, mock_run):
+        """Test getting dvdauthor version."""
+        mock_run.return_value = Mock(
+            returncode=0, stdout="DVDAuthor 0.7.2, Build 20180905"
+        )
+
+        version = self.tool_manager.get_tool_version("dvdauthor")
+        assert version == "system"
+
+    @patch("subprocess.run")
+    def test_get_tool_version_failure(self, mock_run):
+        """Test getting tool version failure."""
+        mock_run.return_value = Mock(returncode=1)
+
+        version = self.tool_manager.get_tool_version("ffmpeg")
+        assert version is None
+
+    @patch("subprocess.run")
+    def test_get_tool_version_exception(self, mock_run):
+        """Test getting tool version with exception."""
+        mock_run.side_effect = FileNotFoundError()
+
+        version = self.tool_manager.get_tool_version("ffmpeg")
+        assert version is None
+
+    def test_get_tool_version_unknown_tool(self):
+        """Test getting version for unknown tool."""
+        version = self.tool_manager.get_tool_version("unknown")
+        assert version is None
+
+    @patch("requests.get")
+    def test_download_file_success(self, mock_get):
+        """Test successful file download."""
+        mock_response = Mock()
+        mock_response.headers = {"content-length": "1000"}
+        mock_response.iter_content.return_value = [b"data1", b"data2"]
+        mock_get.return_value = mock_response
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "test_file"
+
+            self.tool_manager.download_file("http://example.com/file", destination)
+
+            assert destination.exists()
+            with open(destination, "rb") as f:
+                assert f.read() == b"data1data2"
+
+    @patch("requests.get")
+    def test_download_file_http_error(self, mock_get):
+        """Test file download with HTTP error."""
+        mock_get.side_effect = requests.RequestException("Network error")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "test_file"
+
+            with pytest.raises(ToolDownloadError):
+                self.tool_manager.download_file("http://example.com/file", destination)
+
+    @patch("requests.get")
+    def test_download_file_with_progress(self, mock_get):
+        """Test file download with progress callback."""
+        mock_response = Mock()
+        mock_response.headers = {"content-length": "100"}
+        mock_response.iter_content.return_value = [b"x" * 50, b"x" * 50]
+        mock_get.return_value = mock_response
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "test_file"
+
+            self.tool_manager.download_file("http://example.com/file", destination)
+
+            # Check that progress callback was called
+            assert self.progress_callback.call_count == 2
+
+    def test_extract_archive_zip(self):
+        """Test ZIP archive extraction."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create a test ZIP file
+            import zipfile
+
+            zip_path = temp_path / "test.zip"
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                zf.writestr("test_file.txt", "test content")
+
+            extract_dir = temp_path / "extracted"
+            extract_dir.mkdir()
+
+            self.tool_manager.extract_archive(zip_path, extract_dir)
+
+            assert (extract_dir / "test_file.txt").exists()
+            with open(extract_dir / "test_file.txt") as f:
+                assert f.read() == "test content"
+
+    def test_extract_archive_unsupported(self):
+        """Test extraction of unsupported archive format."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            unsupported_file = temp_path / "test.rar"
+            unsupported_file.touch()
+
+            with pytest.raises(ToolDownloadError):
+                self.tool_manager.extract_archive(unsupported_file, temp_path)
+
+    def test_make_executable(self):
+        """Test making file executable."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_file = Path(temp_dir) / "test_file"
+            test_file.touch()
+
+            # Remove execute permissions first
+            test_file.chmod(0o644)
+
+            self.tool_manager.make_executable(test_file)
+
+            # Check that file is now executable
+            file_stat = test_file.stat()
+            assert file_stat.st_mode & stat.S_IXUSR
+            assert file_stat.st_mode & stat.S_IXGRP
+            assert file_stat.st_mode & stat.S_IXOTH
+
+    @patch("src.services.tool_manager.is_platform_supported")
+    def test_download_tool_unsupported_platform(self, mock_platform_supported):
+        """Test tool download on unsupported platform."""
+        mock_platform_supported.return_value = False
+
+        with pytest.raises(ToolDownloadError):
+            self.tool_manager.download_tool("ffmpeg")
+
+    @patch("src.services.tool_manager.get_download_url")
+    @patch("src.services.tool_manager.is_platform_supported")
+    def test_download_tool_invalid_url(self, mock_platform_supported, mock_get_url):
+        """Test tool download with invalid URL."""
+        mock_platform_supported.return_value = True
+        mock_get_url.side_effect = ValueError("Invalid tool")
+
+        with pytest.raises(ToolDownloadError):
+            self.tool_manager.download_tool("invalid_tool")
+
+    @patch("src.services.tool_manager.is_platform_supported")
+    @patch("src.services.tool_manager.get_download_url")
+    @patch.object(ToolManager, "download_file")
+    @patch.object(ToolManager, "validate_tool_functionality")
+    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "save_tool_versions")
+    @patch("shutil.copy2")
+    @patch.object(ToolManager, "make_executable")
+    def test_download_tool_direct_binary(
+        self,
+        mock_make_exec,
+        mock_copy,
+        mock_save_versions,
+        mock_get_version,
+        mock_validate,
+        mock_download,
+        mock_get_url,
+        mock_platform_supported,
+    ):
+        """Test downloading tool as direct binary."""
+        mock_platform_supported.return_value = True
+        mock_get_url.return_value = "http://example.com/ffmpeg"
+        mock_validate.return_value = True
+        mock_get_version.return_value = "4.4.0"
+
+        result = self.tool_manager.download_tool("ffmpeg")
+
+        assert result is True
+        mock_download.assert_called_once()
+        mock_copy.assert_called_once()
+        mock_make_exec.assert_called_once()
+        mock_validate.assert_called_once()
+        mock_save_versions.assert_called_once()
+
+    def test_find_binary_in_extracted_found(self):
+        """Test finding binary in extracted files."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            extract_dir = Path(temp_dir)
+
+            # Create nested directory structure with binary
+            bin_dir = extract_dir / "some" / "nested" / "path"
+            bin_dir.mkdir(parents=True)
+            binary_path = bin_dir / "ffmpeg"
+            binary_path.touch()
+            binary_path.chmod(0o755)
+
+            found_path = self.tool_manager._find_binary_in_extracted(
+                extract_dir, "ffmpeg"
+            )
+
+            assert found_path == binary_path
+
+    def test_find_binary_in_extracted_not_found(self):
+        """Test finding binary in extracted files when not found."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            extract_dir = Path(temp_dir)
+
+            found_path = self.tool_manager._find_binary_in_extracted(
+                extract_dir, "ffmpeg"
+            )
+
+            assert found_path is None
+
+    @patch.object(ToolManager, "is_tool_available_locally")
+    @patch.object(ToolManager, "is_tool_available_system")
+    @patch.object(ToolManager, "validate_tool_functionality")
+    @patch.object(ToolManager, "get_tool_version")
+    @patch("shutil.which")
+    def test_check_tools(
+        self,
+        mock_which,
+        mock_get_version,
+        mock_validate,
+        mock_system_available,
+        mock_local_available,
+    ):
+        """Test checking all tools status."""
+        # Mock return values
+        mock_local_available.return_value = True
+        mock_system_available.return_value = True
+        mock_validate.return_value = True
+        mock_get_version.return_value = "1.0.0"
+        mock_which.return_value = "/usr/bin/tool"
+
+        status = self.tool_manager.check_tools()
+
+        assert len(status) == 3
+        assert "ffmpeg" in status
+        assert "yt-dlp" in status
+        assert "dvdauthor" in status
+
+        for tool_status in status.values():
+            assert "available_locally" in tool_status
+            assert "available_system" in tool_status
+            assert "functional" in tool_status
+            assert "version" in tool_status
+            assert "path" in tool_status
+
+    @patch.object(ToolManager, "check_tools")
+    @patch.object(ToolManager, "download_tool")
+    @patch("src.services.tool_manager.get_dvdauthor_install_instructions")
+    def test_ensure_tools_available_all_present(
+        self, mock_instructions, mock_download, mock_check
+    ):
+        """Test ensuring tools when all are available."""
+        mock_check.return_value = {
+            "ffmpeg": {"functional": True},
+            "yt-dlp": {"functional": True},
+            "dvdauthor": {"functional": True},
+        }
+
+        success, missing = self.tool_manager.ensure_tools_available()
+
+        assert success is True
+        assert missing == []
+        mock_download.assert_not_called()
+
+    @patch.object(ToolManager, "check_tools")
+    @patch.object(ToolManager, "download_tool")
+    @patch("src.services.tool_manager.get_dvdauthor_install_instructions")
+    def test_ensure_tools_available_download_needed(
+        self, mock_instructions, mock_download, mock_check
+    ):
+        """Test ensuring tools when download is needed."""
+        mock_check.return_value = {
+            "ffmpeg": {"functional": False},
+            "yt-dlp": {"functional": True},
+            "dvdauthor": {"functional": True},
+        }
+        mock_download.return_value = True
+
+        success, missing = self.tool_manager.ensure_tools_available()
+
+        assert success is True
+        assert missing == []
+        mock_download.assert_called_once_with("ffmpeg")
+
+    @patch.object(ToolManager, "check_tools")
+    @patch.object(ToolManager, "download_tool")
+    @patch("src.services.tool_manager.get_dvdauthor_install_instructions")
+    def test_ensure_tools_available_dvdauthor_missing(
+        self, mock_instructions, mock_download, mock_check
+    ):
+        """Test ensuring tools when dvdauthor is missing."""
+        mock_check.return_value = {
+            "ffmpeg": {"functional": True},
+            "yt-dlp": {"functional": True},
+            "dvdauthor": {"functional": False},
+        }
+        mock_instructions.return_value = "Install with: brew install dvdauthor"
+
+        success, missing = self.tool_manager.ensure_tools_available()
+
+        assert success is False
+        assert len(missing) == 1
+        assert "dvdauthor" in missing[0]
+        assert "brew install dvdauthor" in missing[0]
+
+    @patch.object(ToolManager, "check_tools")
+    def test_get_tool_command_available(self, mock_check):
+        """Test getting tool command when tool is available."""
+        mock_check.return_value = {
+            "ffmpeg": {"functional": True, "path": "/usr/bin/ffmpeg"}
+        }
+
+        command = self.tool_manager.get_tool_command("ffmpeg")
+        assert command == ["/usr/bin/ffmpeg"]
+
+    @patch.object(ToolManager, "check_tools")
+    def test_get_tool_command_not_available(self, mock_check):
+        """Test getting tool command when tool is not available."""
+        mock_check.return_value = {"ffmpeg": {"functional": False, "path": None}}
+
+        with pytest.raises(ToolValidationError):
+            self.tool_manager.get_tool_command("ffmpeg")
+
+    @patch.object(ToolManager, "check_tools")
+    def test_get_tool_command_no_path(self, mock_check):
+        """Test getting tool command when no path is available."""
+        mock_check.return_value = {"ffmpeg": {"functional": True, "path": None}}
+
+        command = self.tool_manager.get_tool_command("ffmpeg")
+        assert command == ["ffmpeg"]
+
+
+class TestToolManagerSettings:
+    """Test ToolManager behavior with different settings."""
+
+    def test_use_system_tools(self):
+        """Test behavior when use_system_tools is enabled."""
+        settings = Settings(bin_dir=Path("/tmp/test_bin"), use_system_tools=True)
+        tool_manager = ToolManager(settings)
+
+        with patch.object(tool_manager, "is_tool_available_system", return_value=True):
+            with patch.object(
+                tool_manager, "validate_tool_functionality", return_value=True
+            ):
+                status = tool_manager.check_tools()
+
+                # Should not check local availability for downloadable tools
+                for tool_name in ["ffmpeg", "yt-dlp"]:
+                    assert status[tool_name]["available_locally"] is False
+
+    def test_download_tools_disabled(self):
+        """Test behavior when download_tools is disabled."""
+        settings = Settings(bin_dir=Path("/tmp/test_bin"), download_tools=False)
+        tool_manager = ToolManager(settings)
+
+        with patch.object(tool_manager, "check_tools") as mock_check:
+            mock_check.return_value = {
+                "ffmpeg": {"functional": False},
+                "yt-dlp": {"functional": True},
+                "dvdauthor": {"functional": True},
+            }
+
+            success, missing = tool_manager.ensure_tools_available()
+
+            assert success is False
+            assert len(missing) == 1
+            assert "auto-download disabled" in missing[0]
+
+
+class TestToolManagerExceptions:
+    """Test ToolManager exception handling."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.settings = Settings(bin_dir=Path("/tmp/test_bin"))
+        self.tool_manager = ToolManager(self.settings)
+
+    def test_tool_manager_error(self):
+        """Test ToolManagerError exception."""
+        error = ToolManagerError("Test error")
+        assert str(error) == "Test error"
+        assert isinstance(error, Exception)
+
+    def test_tool_download_error(self):
+        """Test ToolDownloadError exception."""
+        error = ToolDownloadError("Download failed")
+        assert str(error) == "Download failed"
+        assert isinstance(error, ToolManagerError)
+
+    def test_tool_validation_error(self):
+        """Test ToolValidationError exception."""
+        error = ToolValidationError("Validation failed")
+        assert str(error) == "Validation failed"
+        assert isinstance(error, ToolManagerError)
