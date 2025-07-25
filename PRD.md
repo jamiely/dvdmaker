@@ -108,6 +108,35 @@ python dvdmaker.py --playlist-url URL [options]
 - `--force-convert`: Force re-conversion even if cached
 - `--download-tools`: Download required tools to local bin directory
 - `--use-system-tools`: Use system-installed tools instead of local bin
+- `--log-level`: Set logging level (TRACE, DEBUG, INFO, WARNING, ERROR)
+- `--log-file`: Specify log file path (default: logs/dvdmaker.log)
+- `--verbose`: Enable verbose console output (equivalent to --log-level DEBUG)
+- `--quiet`: Suppress all console output except errors
+
+## Logging & Monitoring
+
+### Logging Requirements
+- **File Logging**: All operations logged to rotating log files in logs/ directory
+- **Log Levels**: Support TRACE, DEBUG, INFO, WARNING, ERROR levels
+- **Structured Logging**: JSON-formatted logs with timestamps, operation context, and metadata
+- **Log Rotation**: Automatic rotation with size-based and time-based triggers
+- **Performance Logging**: Execution times for major operations (download, conversion, authoring)
+- **Error Logging**: Detailed error context with stack traces for debugging
+
+### Log Content
+- **Tool Operations**: All ffmpeg, yt-dlp, and dvdauthor command invocations and outputs
+- **Cache Operations**: Cache hits/misses, file operations, integrity checks
+- **Network Operations**: Download progress, retry attempts, rate limiting
+- **File Operations**: File creation, movement, deletion, size verification
+- **User Actions**: Command-line arguments, configuration loading, operation flow
+- **System Information**: Platform detection, tool versions, system resources
+
+### Console Output
+- **INFO Level**: Progress updates, major operation status, completion messages
+- **WARNING Level**: Non-fatal issues, missing videos, capacity warnings
+- **ERROR Level**: Fatal errors, configuration issues, tool failures
+- **Quiet Mode**: Only critical errors displayed to console
+- **Verbose Mode**: Debug-level information displayed alongside file logging
 
 ## Success Criteria
 - Successfully downloads complete playlists
@@ -140,7 +169,8 @@ dvdmaker/
 │   │   ├── __init__.py
 │   │   ├── filename.py        # ASCII normalization utilities
 │   │   ├── platform.py        # Platform detection utilities
-│   │   └── progress.py        # Progress reporting utilities
+│   │   ├── progress.py        # Progress reporting utilities
+│   │   └── logging.py         # Logging configuration and utilities
 │   └── config/                # Configuration management
 │       ├── __init__.py
 │       └── settings.py        # Application settings
@@ -160,6 +190,10 @@ dvdmaker/
 │   ├── metadata/
 │   └── filename_mapping.json
 ├── output/                    # DVD output
+├── logs/                      # Application logs
+│   ├── dvdmaker.log           # Main application log
+│   ├── dvdmaker.log.1         # Rotated log files
+│   └── debug/                 # Debug-level logs (when enabled)
 ├── requirements.txt           # Runtime dependencies
 ├── requirements-dev.txt       # Development dependencies
 ├── setup.py                   # Package configuration

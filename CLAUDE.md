@@ -69,8 +69,31 @@ See `PLAN.md` for:
 - Estimated timeline
 - Current progress status
 
+## Logging Standards
+- Use Python's logging module with structured JSON output
+- Log to files with automatic rotation (10MB max, 5 backups)
+- Support TRACE, DEBUG, INFO, WARNING, ERROR levels
+- Include operation context and timing information
+- Log all external tool invocations and outputs
+- Use logger hierarchies (e.g., 'dvdmaker.downloader', 'dvdmaker.converter')
+- Include correlation IDs for tracking operations across components
+- Never log sensitive information (API keys, personal data)
+
+### Logging Best Practices
+- Use appropriate log levels:
+  - TRACE: Detailed internal state and flow
+  - DEBUG: Development debugging, detailed operations
+  - INFO: Normal operation progress and results
+  - WARNING: Recoverable issues, missing videos
+  - ERROR: Unrecoverable errors requiring user intervention
+- Include relevant context in log messages (video IDs, file paths, operation types)
+- Use structured logging with consistent field names
+- Log performance metrics for major operations
+- Ensure all exceptions include full stack traces in logs
+
 ## Error Handling
 - Graceful failure when tools unavailable
 - Clear installation instructions for dvdauthor
 - Atomic operations for file caching
 - Proper cleanup of temporary files
+- Comprehensive error logging with context

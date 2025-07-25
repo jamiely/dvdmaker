@@ -73,40 +73,64 @@
 ## Phase 3: Utility Functions
 
 ### 3.1 Platform Detection (src/utils/platform.py)
-- [ ] Create function to detect OS (Linux, macOS, Windows)
-- [ ] Create function to detect architecture (x64, arm64)
-- [ ] Create function to get platform-specific download URLs
-- [ ] Add type hints and error handling
+- [x] Create function to detect OS (Linux, macOS, Windows)
+- [x] Create function to detect architecture (x64, arm64)
+- [x] Create function to get platform-specific download URLs
+- [x] Add type hints and error handling
 
 ### 3.2 Filename Utilities (src/utils/filename.py)
-- [ ] Create ASCII normalization function using unidecode
-- [ ] Create filename sanitization function
-- [ ] Create unique filename generation function
-- [ ] Create filename mapping management functions
-- [ ] Add comprehensive test coverage
+- [x] Create ASCII normalization function using unidecode
+- [x] Create filename sanitization function
+- [x] Create unique filename generation function
+- [x] Create filename mapping management functions
+- [x] Add comprehensive test coverage
 
 ### 3.3 Progress Reporting (src/utils/progress.py)
-- [ ] Create progress callback interface
-- [ ] Create console progress reporter
-- [ ] Create progress aggregation for multi-step operations
-- [ ] Add cancellation support
+- [x] Create progress callback interface
+- [x] Create console progress reporter
+- [x] Create progress aggregation for multi-step operations
+- [x] Add cancellation support
 
-## Phase 4: Configuration Management
+## Phase 4: Logging Infrastructure
 
-### 4.1 Settings (src/config/settings.py)
+### 4.1 Logging Utilities (src/utils/logging.py)
+- [ ] Create logging configuration with JSON formatting
+- [ ] Implement TRACE log level support
+- [ ] Create rotating file handler with size and time-based rotation
+- [ ] Add structured logging with correlation IDs
+- [ ] Create context managers for operation logging
+- [ ] Implement performance timing decorators
+- [ ] Add log filtering for sensitive information
+- [ ] Create console and file output handlers
+
+### 4.2 Logger Integration
+- [ ] Set up hierarchical loggers for each module
+- [ ] Create logging mixins for service classes
+- [ ] Add operation context tracking
+- [ ] Implement log aggregation utilities
+- [ ] Create debug logging helpers
+- [ ] Add error context preservation
+
+## Phase 5: Configuration Management
+
+### 5.1 Settings (src/config/settings.py)
 - [ ] Create Settings dataclass with Pydantic validation
   - [ ] cache_dir: Path
   - [ ] output_dir: Path
   - [ ] temp_dir: Path
   - [ ] bin_dir: Path
+  - [ ] log_dir: Path
+  - [ ] log_level: str
+  - [ ] log_file_max_size: int
+  - [ ] log_file_backup_count: int
   - [ ] download_rate_limit: str
   - [ ] video_quality: str
 - [ ] Create configuration loading from files/environment
 - [ ] Create configuration validation
 
-## Phase 5: Tool Management
+## Phase 6: Tool Management
 
-### 5.1 Tool Manager (src/services/tool_manager.py)
+### 6.1 Tool Manager (src/services/tool_manager.py)
 - [ ] Create ToolManager class with dependency injection
 - [ ] Implement tool version checking
   - [ ] Load tool_versions.json
@@ -123,16 +147,16 @@
   - [ ] Provide installation instructions if missing
 - [ ] Add comprehensive error handling and user messaging
 
-### 5.2 Tool Manager Tests
+### 6.2 Tool Manager Tests
 - [ ] Test tool detection logic
 - [ ] Test download functionality with mocked HTTP requests
 - [ ] Test platform detection
 - [ ] Test error scenarios (network failures, permission issues)
 - [ ] Test tool validation
 
-## Phase 6: Cache Management
+## Phase 7: Cache Management
 
-### 6.1 Cache Manager (src/services/cache_manager.py)
+### 7.1 Cache Manager (src/services/cache_manager.py)
 - [ ] Create CacheManager class
 - [ ] Implement cache directory structure management
   - [ ] Create downloads/, converted/, metadata/ directories
@@ -146,16 +170,16 @@
   - [ ] Maintain original to ASCII mappings
 - [ ] Add cache cleanup and maintenance functions
 
-### 6.2 Cache Manager Tests
+### 7.2 Cache Manager Tests
 - [ ] Test cache hit/miss logic
 - [ ] Test atomic file operations
 - [ ] Test filename mapping persistence
 - [ ] Test cache cleanup
 - [ ] Test error recovery
 
-## Phase 7: Video Downloading
+## Phase 8: Video Downloading
 
-### 7.1 Downloader Service (src/services/downloader.py)
+### 8.1 Downloader Service (src/services/downloader.py)
 - [ ] Create VideoDownloader class
 - [ ] Implement yt-dlp integration
   - [ ] Configure yt-dlp options (cache-dir, limit-rate, etc.)
@@ -171,7 +195,7 @@
 - [ ] Add progress reporting
 - [ ] Add comprehensive error handling for partial playlist success
 
-### 7.2 Downloader Tests
+### 8.2 Downloader Tests
 - [ ] Test playlist extraction with mocked yt-dlp
 - [ ] Test video downloading with cache integration
 - [ ] Test progress reporting
@@ -180,9 +204,9 @@
 - [ ] Test playlist change detection
 - [ ] Test partial playlist success scenarios
 
-## Phase 8: Video Processing
+## Phase 9: Video Processing
 
-### 8.1 Video Converter (src/services/converter.py)
+### 9.1 Video Converter (src/services/converter.py)
 - [ ] Create VideoConverter class
 - [ ] Implement ffmpeg integration
   - [ ] Convert to DVD-compatible formats (MPEG-2)
@@ -193,16 +217,16 @@
 - [ ] Add progress reporting for conversion
 - [ ] Add quality validation for converted files
 
-### 8.2 Converter Tests
+### 9.2 Converter Tests
 - [ ] Test video format conversion with mocked ffmpeg
 - [ ] Test audio conversion
 - [ ] Test thumbnail generation
 - [ ] Test cache integration
 - [ ] Test error handling
 
-## Phase 9: DVD Authoring
+## Phase 10: DVD Authoring
 
-### 9.1 DVD Author Service (src/services/dvd_author.py)
+### 10.1 DVD Author Service (src/services/dvd_author.py)
 - [ ] Create DVDAuthor class
 - [ ] Implement dvdauthor integration
   - [ ] Create DVD menu structure
@@ -214,7 +238,7 @@
 - [ ] Implement ISO generation (optional)
 - [ ] Add validation of final DVD structure
 
-### 9.2 DVD Author Tests
+### 10.2 DVD Author Tests
 - [ ] Test DVD structure creation with mocked dvdauthor
 - [ ] Test menu generation
 - [ ] Test filename normalization integration
@@ -223,9 +247,9 @@
 - [ ] Test DVD capacity warnings
 - [ ] Test partial playlist DVD creation
 
-## Phase 10: CLI Interface
+## Phase 11: CLI Interface
 
-### 10.1 Main CLI (src/main.py)
+### 11.1 Main CLI (src/main.py)
 - [ ] Create argument parser with all required options
 - [ ] Implement tool validation at startup
 - [ ] Orchestrate the complete workflow
@@ -236,37 +260,37 @@
 - [ ] Add comprehensive logging
 - [ ] Add user-friendly error messages and progress updates
 
-### 10.2 CLI Tests
+### 11.2 CLI Tests
 - [ ] Test argument parsing
 - [ ] Test workflow orchestration with mocked services
 - [ ] Test error handling and user messaging
 - [ ] Test tool validation flow
 
-## Phase 11: Integration Testing
+## Phase 12: Integration Testing
 
-### 11.1 End-to-End Tests
+### 12.1 End-to-End Tests
 - [ ] Create integration test with small test playlist
 - [ ] Test complete workflow with mocked external tools
 - [ ] Test error recovery scenarios
 - [ ] Test caching behavior across multiple runs
 - [ ] Performance testing with larger playlists
 
-### 11.2 Documentation
+### 12.2 Documentation
 - [ ] Update README.md with installation and usage instructions
 - [ ] Create examples and troubleshooting guide
 - [ ] Document configuration options
 - [ ] Create development setup guide
 
-## Phase 12: Quality Assurance
+## Phase 13: Quality Assurance
 
-### 12.1 Code Quality
+### 13.1 Code Quality
 - [ ] Achieve >90% test coverage
 - [ ] Pass all linting checks (flake8, mypy)
 - [ ] Format all code with Black and isort
 - [ ] Review and refactor for SOLID principles
 - [ ] Add comprehensive docstrings
 
-### 12.2 Final Testing
+### 13.2 Final Testing
 - [ ] Test on Linux and macOS platforms
 - [ ] Test with various playlist sizes
 - [ ] Test error scenarios and recovery
@@ -274,23 +298,25 @@
 - [ ] Performance optimization if needed
 
 ## Estimated Timeline
-- **Phase 1-2**: 1-2 days (Setup and models)
-- **Phase 3-4**: 1 day (Utilities and config)
-- **Phase 5**: 2-3 days (Tool management)
-- **Phase 6**: 2 days (Cache management)
-- **Phase 7**: 2-3 days (Video downloading)
-- **Phase 8**: 2-3 days (Video processing)
-- **Phase 9**: 2-3 days (DVD authoring)
-- **Phase 10**: 1-2 days (CLI interface)
-- **Phase 11-12**: 2-3 days (Testing and QA)
+- **Phase 1-3**: 2-3 days (Setup, models, and utilities)
+- **Phase 4**: 1 day (Logging infrastructure)
+- **Phase 5**: 1 day (Configuration management)
+- **Phase 6**: 2-3 days (Tool management)
+- **Phase 7**: 2 days (Cache management)
+- **Phase 8**: 2-3 days (Video downloading)
+- **Phase 9**: 2-3 days (Video processing)
+- **Phase 10**: 2-3 days (DVD authoring)
+- **Phase 11**: 1-2 days (CLI interface)
+- **Phase 12-13**: 2-3 days (Testing and QA)
 
-**Total Estimated Time**: 15-22 days
+**Total Estimated Time**: 16-24 days
 
 ## Dependencies Between Phases
 - Phase 2 depends on Phase 1
 - Phases 3-4 can be done in parallel with Phase 2
-- Phase 5 depends on Phases 3-4
-- Phase 6 depends on Phase 2
-- Phases 7-9 depend on Phases 5-6
-- Phase 10 depends on Phases 7-9
-- Phases 11-12 depend on all previous phases
+- Phase 5 depends on Phase 4
+- Phase 6 depends on Phases 4-5
+- Phase 7 depends on Phase 2
+- Phases 8-10 depend on Phases 6-7
+- Phase 11 depends on Phases 8-10
+- Phases 12-13 depend on all previous phases
