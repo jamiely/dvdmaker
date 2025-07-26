@@ -157,25 +157,25 @@
 ## Phase 7: Cache Management
 
 ### 7.1 Cache Manager (src/services/cache_manager.py)
-- [ ] Create CacheManager class
-- [ ] Implement cache directory structure management
-  - [ ] Create downloads/, converted/, metadata/ directories
-  - [ ] Create .in-progress/ subdirectories
-- [ ] Implement file caching logic
-  - [ ] Check cache using video ID as key
-  - [ ] Verify file integrity with checksums
-  - [ ] Handle atomic operations with .tmp files
-- [ ] Implement filename mapping persistence
-  - [ ] Load/save filename_mapping.json
-  - [ ] Maintain original to ASCII mappings
-- [ ] Add cache cleanup and maintenance functions
+- [x] Create CacheManager class
+- [x] Implement cache directory structure management
+  - [x] Create downloads/, converted/, metadata/ directories
+  - [x] Create .in-progress/ subdirectories
+- [x] Implement file caching logic
+  - [x] Check cache using video ID as key
+  - [x] Verify file integrity with checksums
+  - [x] Handle atomic operations with .tmp files
+- [x] Implement filename mapping persistence
+  - [x] Load/save filename_mapping.json
+  - [x] Maintain original to ASCII mappings
+- [x] Add cache cleanup and maintenance functions
 
 ### 7.2 Cache Manager Tests
-- [ ] Test cache hit/miss logic
-- [ ] Test atomic file operations
-- [ ] Test filename mapping persistence
-- [ ] Test cache cleanup
-- [ ] Test error recovery
+- [x] Test cache hit/miss logic
+- [x] Test atomic file operations
+- [x] Test filename mapping persistence
+- [x] Test cache cleanup
+- [x] Test error recovery
 
 ## Phase 8: Video Downloading
 
