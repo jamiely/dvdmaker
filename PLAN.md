@@ -180,29 +180,29 @@
 ## Phase 8: Video Downloading
 
 ### 8.1 Downloader Service (src/services/downloader.py)
-- [ ] Create VideoDownloader class
-- [ ] Implement yt-dlp integration
-  - [ ] Configure yt-dlp options (cache-dir, limit-rate, etc.)
-  - [ ] Handle playlist extraction (maintain original video ordering)
-  - [ ] Download individual videos
-  - [ ] Extract metadata from yt-dlp only
-  - [ ] Handle missing/private videos gracefully with status logging
-  - [ ] Detect and handle playlist changes between runs
-- [ ] Implement caching integration
-  - [ ] Check cache before downloading
-  - [ ] Store downloads in cache
-  - [ ] Handle in-progress downloads
-- [ ] Add progress reporting
-- [ ] Add comprehensive error handling for partial playlist success
+- [x] Create VideoDownloader class
+- [x] Implement yt-dlp integration
+  - [x] Configure yt-dlp options (cache-dir, limit-rate, etc.)
+  - [x] Handle playlist extraction (maintain original video ordering)
+  - [x] Download individual videos
+  - [x] Extract metadata from yt-dlp only
+  - [x] Handle missing/private videos gracefully with status logging
+  - [x] Detect and handle playlist changes between runs
+- [x] Implement caching integration
+  - [x] Check cache before downloading
+  - [x] Store downloads in cache
+  - [x] Handle in-progress downloads
+- [x] Add progress reporting
+- [x] Add comprehensive error handling for partial playlist success
 
 ### 8.2 Downloader Tests
-- [ ] Test playlist extraction with mocked yt-dlp
-- [ ] Test video downloading with cache integration
-- [ ] Test progress reporting
-- [ ] Test error scenarios (missing/private videos)
-- [ ] Test rate limiting
-- [ ] Test playlist change detection
-- [ ] Test partial playlist success scenarios
+- [x] Test playlist extraction with mocked yt-dlp
+- [x] Test video downloading with cache integration
+- [x] Test progress reporting
+- [x] Test error scenarios (missing/private videos)
+- [x] Test rate limiting
+- [x] Test playlist change detection
+- [x] Test partial playlist success scenarios
 
 ## Phase 9: Video Processing
 
