@@ -227,25 +227,25 @@
 ## Phase 10: DVD Authoring
 
 ### 10.1 DVD Author Service (src/services/dvd_author.py)
-- [ ] Create DVDAuthor class
-- [ ] Implement dvdauthor integration
-  - [ ] Create DVD menu structure
-  - [ ] Generate VIDEO_TS directory structure
-  - [ ] Handle multiple videos as chapters in single title (maintain playlist order)
-  - [ ] Apply ASCII filename normalization
-  - [ ] Warn users when playlist exceeds DVD capacity (4.7GB)
-  - [ ] Create DVDs with successfully processed videos only
-- [ ] Implement ISO generation (optional)
-- [ ] Add validation of final DVD structure
+- [x] Create DVDAuthor class
+- [x] Implement dvdauthor integration
+  - [x] Create DVD menu structure
+  - [x] Generate VIDEO_TS directory structure
+  - [x] Handle multiple videos as chapters in single title (maintain playlist order)
+  - [x] Apply ASCII filename normalization
+  - [x] Warn users when playlist exceeds DVD capacity (4.7GB)
+  - [x] Create DVDs with successfully processed videos only
+- [x] Implement ISO generation (optional)
+- [x] Add validation of final DVD structure
 
 ### 10.2 DVD Author Tests
-- [ ] Test DVD structure creation with mocked dvdauthor
-- [ ] Test menu generation
-- [ ] Test filename normalization integration
-- [ ] Test ISO generation
-- [ ] Test validation logic
-- [ ] Test DVD capacity warnings
-- [ ] Test partial playlist DVD creation
+- [x] Test DVD structure creation with mocked dvdauthor
+- [x] Test menu generation
+- [x] Test filename normalization integration
+- [x] Test ISO generation
+- [x] Test validation logic
+- [x] Test DVD capacity warnings
+- [x] Test partial playlist DVD creation
 
 ## Phase 11: CLI Interface
 
