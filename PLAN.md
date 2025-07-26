@@ -207,22 +207,22 @@
 ## Phase 9: Video Processing
 
 ### 9.1 Video Converter (src/services/converter.py)
-- [ ] Create VideoConverter class
-- [ ] Implement ffmpeg integration
-  - [ ] Convert to DVD-compatible formats (MPEG-2)
-  - [ ] Handle aspect ratio and frame rate conversion
-  - [ ] Convert audio to DVD standards
-  - [ ] Generate thumbnails for menus
-- [ ] Implement caching for converted files
-- [ ] Add progress reporting for conversion
-- [ ] Add quality validation for converted files
+- [x] Create VideoConverter class
+- [x] Implement ffmpeg integration
+  - [x] Convert to DVD-compatible formats (MPEG-2)
+  - [x] Handle aspect ratio and frame rate conversion
+  - [x] Convert audio to DVD standards
+  - [x] Generate thumbnails for menus
+- [x] Implement caching for converted files
+- [x] Add progress reporting for conversion
+- [x] Add quality validation for converted files
 
 ### 9.2 Converter Tests
-- [ ] Test video format conversion with mocked ffmpeg
-- [ ] Test audio conversion
-- [ ] Test thumbnail generation
-- [ ] Test cache integration
-- [ ] Test error handling
+- [x] Test video format conversion with mocked ffmpeg
+- [x] Test audio conversion
+- [x] Test thumbnail generation
+- [x] Test cache integration
+- [x] Test error handling
 
 ## Phase 10: DVD Authoring
 

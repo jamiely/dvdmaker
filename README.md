@@ -102,9 +102,37 @@ The downloader supports:
 - Video status tracking (AVAILABLE, DOWNLOADING, DOWNLOADED, FAILED, MISSING, PRIVATE)
 - Automatic tool management (downloads yt-dlp if not available)
 
+### Video Processing (Phase 9 - Completed)
+
+The video processing system converts downloaded videos to DVD-compatible formats using ffmpeg:
+
+1. **DVD Format Conversion**: Converts videos to MPEG-2 with DVD-standard resolutions (720x480 NTSC/720x576 PAL)
+2. **Audio Standardization**: Converts audio to AC-3 format with proper bitrates and sample rates for DVD compatibility
+3. **Aspect Ratio Handling**: Automatically determines and applies appropriate DVD aspect ratios
+4. **Frame Rate Conversion**: Handles NTSC (29.97fps) and PAL (25fps) frame rate conversion based on source material
+5. **Thumbnail Generation**: Creates DVD menu thumbnails from video content
+6. **Quality Validation**: Verifies converted files meet DVD specifications
+7. **Intelligent Caching**: Caches converted files to avoid redundant processing
+8. **Progress Reporting**: Provides detailed progress updates during conversion operations
+9. **Atomic Operations**: Uses temporary files to ensure conversion integrity
+
+The converter supports:
+- Automatic format detection and DVD standard determination
+- Batch processing of multiple videos
+- Cache hit/miss optimization for faster subsequent conversions
+- Comprehensive error handling with detailed logging
+- Metadata tracking for converted files (codecs, resolution, duration, file size)
+- Cleanup utilities for cache management
+
+Key technical specifications:
+- **Video**: MPEG-2 encoding at 6Mbps bitrate
+- **Audio**: AC-3 encoding at 448kbps bitrate, stereo, 48kHz sample rate
+- **Resolution**: 720x480 (NTSC) or 720x576 (PAL)
+- **Aspect Ratio**: 4:3 standard DVD format
+- **Thumbnails**: 160x120 pixel JPEG format for menu generation
+
 ### Coming Next
 
-- **Phase 9**: Video Processing - Convert downloaded videos to DVD-compatible formats
 - **Phase 10**: DVD Authoring - Create DVD structure with menus and chapters
 - **Phase 11**: CLI Interface - Complete command-line interface
 
