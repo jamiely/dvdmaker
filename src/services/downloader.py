@@ -45,7 +45,7 @@ class VideoDownloader:
         self.tool_manager = tool_manager
         self.yt_dlp_path: Optional[Path] = None
 
-        logger.info(
+        logger.debug(
             f"VideoDownloader initialized with cache_dir={settings.cache_dir}, "
             f"rate_limit={settings.download_rate_limit}"
         )
@@ -101,7 +101,7 @@ class VideoDownloader:
         # Build full command
         cmd = [str(yt_dlp_path)] + args
 
-        logger.info(f"Executing yt-dlp command: {' '.join(cmd)}")
+        logger.debug(f"Executing yt-dlp command: {' '.join(cmd)}")
 
         try:
             result = subprocess.run(
@@ -478,7 +478,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If playlist extraction fails
         """
-        logger.info(f"Starting playlist download: {playlist_url}")
+        logger.debug(f"Starting playlist download: {playlist_url}")
 
         callback = progress_callback or SilentProgressCallback()
 

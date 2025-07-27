@@ -705,7 +705,7 @@ class VideoConverter:
         Raises:
             ConversionError: If any conversion fails
         """
-        logger.info(f"Starting batch conversion of {len(video_files)} videos")
+        logger.debug(f"Starting batch conversion of {len(video_files)} videos")
 
         converted_videos: List[ConvertedVideoFile] = []
         failed_conversions: List[str] = []
@@ -722,7 +722,7 @@ class VideoConverter:
                 converted_video = self.convert_video(video_file, force_convert)
                 converted_videos.append(converted_video)
 
-                logger.info(
+                logger.debug(
                     f"Converted {i+1}/{len(video_files)}: "
                     f"{video_file.metadata.video_id}"
                 )

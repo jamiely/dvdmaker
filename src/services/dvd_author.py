@@ -336,7 +336,7 @@ class DVDAuthor:
             )
 
         total_duration_str = format_duration_human_readable(current_time)
-        logger.info(
+        logger.debug(
             f"Created {len(chapters)} chapters with total duration {total_duration_str}"
         )
         return chapters
@@ -436,7 +436,7 @@ class DVDAuthor:
         Raises:
             DVDAuthoringError: If dvdauthor execution fails
         """
-        logger.info("Running dvdauthor to create DVD structure")
+        logger.debug("Running dvdauthor to create DVD structure")
 
         import shutil
 
@@ -453,7 +453,7 @@ class DVDAuthor:
         output_dir = video_ts_dir.parent
         cmd = [str(dvdauthor_path), "-o", str(output_dir), "-x", str(xml_file)]
 
-        logger.info(f"Executing dvdauthor command: {' '.join(cmd)}")
+        logger.debug(f"Executing dvdauthor command: {' '.join(cmd)}")
 
         import time
 
@@ -471,7 +471,7 @@ class DVDAuthor:
             end_time = time.time()
             creation_time = end_time - start_time
 
-            logger.info(f"dvdauthor completed successfully in {creation_time:.1f}s")
+            logger.debug(f"dvdauthor completed successfully in {creation_time:.1f}s")
             logger.debug(f"dvdauthor stdout: {result.stdout}")
 
             if result.stderr:
@@ -564,7 +564,7 @@ class DVDAuthor:
                 check=True,
             )
 
-            logger.info(f"ISO creation completed: {iso_file}")
+            logger.debug(f"ISO creation completed: {iso_file}")
             logger.debug(f"ISO tool stdout: {result.stdout}")
 
             if result.stderr:

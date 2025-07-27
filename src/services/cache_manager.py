@@ -53,7 +53,7 @@ class CacheManager:
         # Create directories
         self._create_directories()
 
-        logger.info(
+        logger.debug(
             f"CacheManager initialized with cache_dir={cache_dir}, "
             f"force_download={force_download}, "
             f"force_convert={force_convert}"
