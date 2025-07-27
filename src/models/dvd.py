@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List
 
 from ..utils.logging import get_logger
+from ..utils.time_format import format_duration_human_readable
 from .video import VideoFile
 
 logger = get_logger(__name__)
@@ -140,6 +141,11 @@ class DVDStructure:
         # Duration is from start of first chapter to end of last chapter
         last_chapter = max(self.chapters, key=lambda c: c.chapter_number)
         return last_chapter.end_time
+
+    @property
+    def total_duration_human_readable(self) -> str:
+        """Get the total duration in human-readable format."""
+        return format_duration_human_readable(self.total_duration)
 
     @property
     def size_mb(self) -> float:

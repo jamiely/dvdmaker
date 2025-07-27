@@ -512,6 +512,10 @@ class TestMainFunction:
         mock_cache_manager.return_value = mock_cache_manager_instance
 
         mock_converted_video = Mock()
+        mock_converted_video.size_mb = 1000.0  # 1GB video that fits on DVD
+        mock_converted_video.metadata = Mock()
+        mock_converted_video.metadata.video_id = "test123"
+        mock_converted_video.metadata.title = "Test Video"
         mock_converter_instance = Mock()
         mock_converter_instance.convert_videos.return_value = [mock_converted_video]
         mock_converter.return_value = mock_converter_instance

@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from ..utils.logging import get_logger
+from ..utils.time_format import format_duration_human_readable
 from .video import VideoMetadata
 
 logger = get_logger(__name__)
@@ -212,3 +213,13 @@ class Playlist:
             f"({available_count}/{len(self.videos)})"
         )
         return success_rate
+
+    @property
+    def total_duration(self) -> int:
+        """Get the total duration of all videos in seconds."""
+        return sum(video.duration for video in self.videos)
+
+    @property
+    def total_duration_human_readable(self) -> str:
+        """Get the total duration in human-readable format."""
+        return format_duration_human_readable(self.total_duration)

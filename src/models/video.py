@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..utils.logging import get_logger
+from ..utils.time_format import format_duration_human_readable
 
 logger = get_logger(__name__)
 
@@ -50,7 +51,7 @@ class VideoMetadata:
 
         logger.debug(
             f"VideoMetadata validated successfully: {self.video_id} - {self.title} "
-            f"({self.duration}s)"
+            f"({format_duration_human_readable(self.duration)})"
         )
 
 

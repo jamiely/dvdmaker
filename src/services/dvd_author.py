@@ -21,6 +21,7 @@ from ..services.converter import ConvertedVideoFile
 from ..services.tool_manager import ToolManager
 from ..utils.filename import normalize_to_ascii
 from ..utils.logging import get_logger
+from ..utils.time_format import format_duration_human_readable
 
 # Progress callback type
 ProgressCallback = Callable[[str, float], None]
@@ -327,13 +328,16 @@ class DVDAuthor:
                 chapter.duration
             )  # Use chapter.duration instead of video.duration
 
+            duration_str = format_duration_human_readable(chapter.duration)
+            start_time_str = format_duration_human_readable(chapter.start_time)
             logger.debug(
                 f"Created chapter {i}: {video.metadata.title} "
-                f"({chapter.duration}s, starts at {chapter.start_time}s)"
+                f"({duration_str}, starts at {start_time_str})"
             )
 
+        total_duration_str = format_duration_human_readable(current_time)
         logger.info(
-            f"Created {len(chapters)} chapters with total duration {current_time}s"
+            f"Created {len(chapters)} chapters with total duration {total_duration_str}"
         )
         return chapters
 

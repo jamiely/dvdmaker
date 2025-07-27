@@ -1,5 +1,11 @@
 """Utility functions for DVD Maker."""
 
+from .capacity import (
+    CapacityResult,
+    ExcludedVideo,
+    log_excluded_videos,
+    select_videos_for_dvd_capacity,
+)
 from .filename import (
     FilenameMapper,
     generate_unique_filename,
@@ -32,8 +38,16 @@ from .progress import (
     ProgressTracker,
     SilentProgressCallback,
 )
+from .time_format import (
+    format_duration_human_readable,
+)
 
 __all__ = [
+    # Capacity utilities
+    "CapacityResult",
+    "ExcludedVideo",
+    "log_excluded_videos",
+    "select_videos_for_dvd_capacity",
     # Filename utilities
     "normalize_to_ascii",
     "sanitize_filename",
@@ -62,4 +76,6 @@ __all__ = [
     "CallbackProgressCallback",
     "ProgressTracker",
     "MultiStepProgressTracker",
+    # Time formatting utilities
+    "format_duration_human_readable",
 ]

@@ -17,6 +17,7 @@ from .services.converter import VideoConverter, VideoConverterError
 from .services.downloader import VideoDownloader, YtDlpError
 from .services.dvd_author import DVDAuthor, DVDAuthorError
 from .services.tool_manager import ToolManager, ToolManagerError
+from .utils.capacity import log_excluded_videos, select_videos_for_dvd_capacity
 from .utils.logging import get_logger, operation_context, setup_logging
 
 
@@ -399,12 +400,36 @@ def main() -> int:
 
                 logger.info(f"Converted {len(converted_videos)} videos successfully")
 
+            logger.info("Step 2.5: Checking DVD capacity...")
+            with operation_context("capacity_check"):
+                # Check if all videos fit on DVD, exclude excess if necessary
+                capacity_result = select_videos_for_dvd_capacity(converted_videos)
+
+                if capacity_result.has_exclusions:
+                    excluded_count = len(capacity_result.excluded_videos)
+                    logger.warning(
+                        f"DVD capacity exceeded! {excluded_count} videos will be "
+                        f"excluded to fit on a standard 4.7GB DVD."
+                    )
+                    log_excluded_videos(capacity_result.excluded_videos)
+
+                final_videos = capacity_result.included_videos
+
+                if not final_videos:
+                    logger.error("No videos fit on DVD after capacity check")
+                    return 1
+
+                logger.info(
+                    f"Using {len(final_videos)} videos for DVD "
+                    f"({capacity_result.total_size_gb:.2f}GB)"
+                )
+
             logger.info("Step 3: Creating DVD structure...")
             with operation_context("dvd_authoring"):
                 menu_title = settings.menu_title or playlist.metadata.title
 
                 authored_dvd = dvd_author.create_dvd_structure(
-                    converted_videos=converted_videos,
+                    converted_videos=final_videos,
                     menu_title=menu_title,
                     output_dir=settings.output_dir,
                     create_iso=settings.generate_iso,
