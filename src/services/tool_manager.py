@@ -515,8 +515,7 @@ class ToolManager:
             self.save_tool_versions(versions)
 
             logger.info(f"Successfully downloaded and installed {tool_name}")
-            # Invalidate cache since tool status has changed
-            self._invalidate_cache()
+            # Cache will be invalidated by caller if needed
             return True
 
     def _find_binary_in_extracted(
@@ -622,6 +621,7 @@ class ToolManager:
 
         tools_status = self.check_tools(use_cache=False)  # Force fresh check
         missing_tools: List[str] = []
+        needs_recheck = False
 
         for tool_name, status in tools_status.items():
             logger.debug(f"Processing tool {tool_name} with status: {status}")
@@ -638,18 +638,7 @@ class ToolManager:
                         logger.info(f"Attempting to download {tool_name}")
                         self.download_tool(tool_name)
                         logger.info(f"Successfully downloaded {tool_name}")
-                        # Re-verify after download - force fresh check
-                        post_download_status = self.check_tools(use_cache=False).get(
-                            tool_name, {}
-                        )
-                        if not post_download_status.get("functional", False):
-                            missing_tools.append(
-                                f"{tool_name}: Downloaded but not functional"
-                            )
-                            logger.error(
-                                f"{tool_name} downloaded but validation failed: "
-                                f"{post_download_status}"
-                            )
+                        needs_recheck = True
                     except ToolDownloadError as e:
                         missing_tools.append(f"{tool_name}: Download failed - {e}")
                         logger.error(f"Failed to download {tool_name}: {e}")
@@ -666,6 +655,25 @@ class ToolManager:
                         f"available_system={status['available_system']}, "
                         f"functional={status['functional']}, path={status['path']}"
                     )
+
+        # Only recheck tools once if any downloads occurred
+        if needs_recheck:
+            logger.debug("Rechecking tools after downloads")
+            # Invalidate cache before rechecking since tools were downloaded
+            self._invalidate_cache()
+            tools_status = self.check_tools(use_cache=False)
+
+            # Verify downloaded tools are functional
+            for tool_name, status in tools_status.items():
+                if not status["functional"] and tool_name != "dvdauthor":
+                    # Tool was attempted to be downloaded but still not functional
+                    if f"{tool_name}: Download failed" not in str(missing_tools):
+                        missing_tools.append(
+                            f"{tool_name}: Downloaded but not functional"
+                        )
+                        logger.error(
+                            f"{tool_name} downloaded but validation failed: {status}"
+                        )
 
         success = len(missing_tools) == 0
 
