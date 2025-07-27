@@ -360,7 +360,9 @@ class DVDAuthor:
         menus = ET.SubElement(vmgm, "menus")
 
         # Add video format to menus (satisfies VMGM)
-        ET.SubElement(menus, "video", format=video_format, aspect="16:9")
+        ET.SubElement(
+            menus, "video", format=video_format, aspect=self.settings.aspect_ratio
+        )
 
         pgc = ET.SubElement(menus, "pgc")
 
@@ -372,7 +374,9 @@ class DVDAuthor:
         titles = ET.SubElement(titleset, "titles")
 
         # Add video format to titles
-        ET.SubElement(titles, "video", format=video_format, aspect="16:9")
+        ET.SubElement(
+            titles, "video", format=video_format, aspect=self.settings.aspect_ratio
+        )
 
         title_pgc = ET.SubElement(titles, "pgc")
 

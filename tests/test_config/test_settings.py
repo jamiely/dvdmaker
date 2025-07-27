@@ -38,6 +38,7 @@ class TestSettings:
         assert settings.verbose is False
         assert settings.quiet is False
         assert settings.video_format == "NTSC"
+        assert settings.aspect_ratio == "16:9"
 
     def test_custom_settings(self):
         """Test creating settings with custom values."""
@@ -115,6 +116,20 @@ class TestSettings:
 
         with pytest.raises(ValidationError):
             Settings(video_format="SECAM")
+
+    def test_aspect_ratio_validation(self):
+        """Test aspect ratio validation."""
+        # Valid aspect ratios should work
+        for ratio in ["4:3", "16:9"]:
+            settings = Settings(aspect_ratio=ratio)
+            assert settings.aspect_ratio == ratio
+
+        # Invalid aspect ratio should raise error
+        with pytest.raises(ValidationError):
+            Settings(aspect_ratio="INVALID")
+
+        with pytest.raises(ValidationError):
+            Settings(aspect_ratio="2.35:1")
 
     def test_quiet_verbose_conflict(self):
         """Test that quiet and verbose cannot both be True."""

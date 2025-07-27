@@ -331,7 +331,7 @@ class VideoConverter:
             "-r",
             framerate,
             "-aspect",
-            "4:3",  # Standard DVD aspect ratio
+            self.settings.aspect_ratio,
             "-c:a",
             self.AUDIO_CODEC,
             "-b:a",

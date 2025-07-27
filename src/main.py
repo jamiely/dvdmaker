@@ -78,6 +78,12 @@ Examples:
         "(default: NTSC)",
     )
     parser.add_argument(
+        "--aspect-ratio",
+        choices=["4:3", "16:9"],
+        default="16:9",
+        help="DVD aspect ratio: 4:3 (standard) or 16:9 (widescreen) (default: 16:9)",
+    )
+    parser.add_argument(
         "--no-iso",
         action="store_true",
         help="Skip ISO image generation (ISO creation is enabled by default)",
@@ -188,6 +194,8 @@ def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Se
         updates["menu_title"] = args.menu_title
     if args.video_format:
         updates["video_format"] = args.video_format
+    if args.aspect_ratio:
+        updates["aspect_ratio"] = args.aspect_ratio
     if args.no_iso:
         updates["generate_iso"] = False
 

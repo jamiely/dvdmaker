@@ -26,6 +26,7 @@ def mock_settings():
     settings.use_system_tools = False
     settings.download_tools = True
     settings.video_format = "NTSC"  # Default video format
+    settings.aspect_ratio = "16:9"  # Default aspect ratio
     return settings
 
 

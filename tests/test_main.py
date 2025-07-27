@@ -68,6 +68,8 @@ class TestArgumentParser:
                 "My DVD",
                 "--video-format",
                 "PAL",
+                "--aspect-ratio",
+                "4:3",
                 "--no-iso",
                 "--force-download",
                 "--force-convert",
@@ -89,6 +91,7 @@ class TestArgumentParser:
         assert args.quality == "720p"
         assert args.menu_title == "My DVD"
         assert args.video_format == "PAL"
+        assert args.aspect_ratio == "4:3"
         assert args.no_iso
         assert args.force_download
         assert args.force_convert
@@ -143,6 +146,30 @@ class TestArgumentParser:
         # Invalid format should cause SystemExit
         with pytest.raises(SystemExit):
             parser.parse_args(["--playlist-url", "PLxxx", "--video-format", "SECAM"])
+
+    def test_aspect_ratio_argument_parsing(self):
+        """Test aspect ratio argument parsing."""
+        parser = create_argument_parser()
+
+        # Test 4:3 aspect ratio
+        args = parser.parse_args(["--playlist-url", "PLxxx", "--aspect-ratio", "4:3"])
+        assert args.aspect_ratio == "4:3"
+
+        # Test 16:9 aspect ratio
+        args = parser.parse_args(["--playlist-url", "PLxxx", "--aspect-ratio", "16:9"])
+        assert args.aspect_ratio == "16:9"
+
+        # Test default value
+        args = parser.parse_args(["--playlist-url", "PLxxx"])
+        assert args.aspect_ratio == "16:9"  # Default should be 16:9
+
+    def test_aspect_ratio_invalid_choice(self):
+        """Test that invalid aspect ratio choices are rejected."""
+        parser = create_argument_parser()
+
+        # Invalid aspect ratio should raise SystemExit
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--playlist-url", "PLxxx", "--aspect-ratio", "2.35:1"])
 
 
 class TestArgumentValidation:
@@ -253,6 +280,7 @@ class TestSettingsMerge:
             quality=None,
             menu_title=None,
             video_format=None,
+            aspect_ratio=None,
             no_iso=False,
             force_download=False,
             force_convert=False,
@@ -280,6 +308,7 @@ class TestSettingsMerge:
             quality="720p",
             menu_title="Custom Title",
             video_format="PAL",
+            aspect_ratio="4:3",
             no_iso=True,
             force_download=True,
             force_convert=True,
@@ -298,6 +327,7 @@ class TestSettingsMerge:
         assert merged.video_quality == "720p"
         assert merged.menu_title == "Custom Title"
         assert merged.video_format == "PAL"
+        assert merged.aspect_ratio == "4:3"
         assert merged.generate_iso is False
         assert merged.force_download is True
         assert merged.force_convert is True
@@ -318,6 +348,7 @@ class TestSettingsMerge:
             quality=None,
             menu_title=None,
             video_format=None,
+            aspect_ratio=None,
             no_iso=False,
             force_download=False,
             force_convert=False,
@@ -344,6 +375,7 @@ class TestSettingsMerge:
             quality=None,
             menu_title=None,
             video_format="PAL",
+            aspect_ratio=None,
             no_iso=False,
             force_download=False,
             force_convert=False,
@@ -361,6 +393,37 @@ class TestSettingsMerge:
         args.video_format = None
         merged = merge_settings_with_args(args, settings)
         assert merged.video_format == "NTSC"  # Should keep original default
+
+    def test_merge_settings_aspect_ratio(self):
+        """Test merging with aspect ratio argument."""
+        settings = Settings()  # Default aspect_ratio is 16:9
+
+        # Test with 4:3 override
+        args = argparse.Namespace(
+            output_dir=None,
+            cache_dir=None,
+            temp_dir=None,
+            quality=None,
+            menu_title=None,
+            video_format=None,
+            aspect_ratio="4:3",
+            no_iso=False,
+            force_download=False,
+            force_convert=False,
+            use_system_tools=False,
+            download_tools=False,
+            log_level=None,
+            verbose=False,
+            quiet=False,
+        )
+
+        merged = merge_settings_with_args(args, settings)
+        assert merged.aspect_ratio == "4:3"
+
+        # Test with no override (should remain default)
+        args.aspect_ratio = None
+        merged = merge_settings_with_args(args, settings)
+        assert merged.aspect_ratio == "16:9"  # Should keep original default
 
 
 class TestToolValidation:

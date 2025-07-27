@@ -25,7 +25,10 @@ class TestToolManager:
     def setup_method(self):
         """Set up test fixtures."""
         self.settings = Settings(
-            bin_dir=Path("/tmp/test_bin"), download_tools=True, use_system_tools=False
+            bin_dir=Path("/tmp/test_bin"),
+            download_tools=True,
+            use_system_tools=False,
+            generate_iso=False,  # Disable ISO generation for basic tests
         )
         self.progress_callback = Mock()
         self.tool_manager = ToolManager(self.settings, self.progress_callback)
@@ -144,6 +147,26 @@ class TestToolManager:
         mock_which.return_value = None
         assert self.tool_manager.is_tool_available_system("ffmpeg") is False
 
+    @patch("shutil.which")
+    def test_is_tool_available_system_mkisofs(self, mock_which):
+        """Test system tool availability for mkisofs."""
+        # Test mkisofs available
+        mock_which.side_effect = lambda tool: (
+            "/usr/bin/mkisofs" if tool == "mkisofs" else None
+        )
+        assert self.tool_manager.is_tool_available_system("mkisofs") is True
+
+        # Test genisoimage available (fallback)
+        mock_which.side_effect = lambda tool: (
+            "/usr/bin/genisoimage" if tool == "genisoimage" else None
+        )
+        assert self.tool_manager.is_tool_available_system("mkisofs") is True
+
+        # Test neither available - reset side_effect
+        mock_which.side_effect = None
+        mock_which.return_value = None
+        assert self.tool_manager.is_tool_available_system("mkisofs") is False
+
     @patch("subprocess.run")
     def test_validate_tool_functionality_ffmpeg(self, mock_run):
         """Test tool functionality validation for ffmpeg."""
@@ -172,6 +195,35 @@ class TestToolManager:
         assert self.tool_manager.validate_tool_functionality("dvdauthor") is True
         mock_run.assert_called_once_with(
             ["dvdauthor", "--help"], capture_output=True, text=True, timeout=10
+        )
+
+    @patch("subprocess.run")
+    def test_validate_tool_functionality_mkisofs(self, mock_run):
+        """Test tool functionality validation for mkisofs."""
+        mock_run.return_value = Mock(returncode=0)
+
+        assert self.tool_manager.validate_tool_functionality("mkisofs") is True
+        mock_run.assert_called_once_with(
+            ["mkisofs", "--version"], capture_output=True, text=True, timeout=10
+        )
+
+    @patch("subprocess.run")
+    def test_validate_tool_functionality_mkisofs_fallback(self, mock_run):
+        """Test tool functionality validation for mkisofs with genisoimage fallback."""
+        # First call (mkisofs) fails, second call (genisoimage) succeeds
+        mock_run.side_effect = [
+            Mock(returncode=1, stderr="mkisofs not found"),
+            Mock(returncode=0, stdout="genisoimage version info"),
+        ]
+
+        assert self.tool_manager.validate_tool_functionality("mkisofs") is True
+        assert mock_run.call_count == 2
+        # Check that both commands were tried
+        mock_run.assert_any_call(
+            ["mkisofs", "--version"], capture_output=True, text=True, timeout=10
+        )
+        mock_run.assert_any_call(
+            ["genisoimage", "--version"], capture_output=True, text=True, timeout=10
         )
 
     @patch("subprocess.run")
@@ -237,6 +289,27 @@ class TestToolManager:
 
         version = self.tool_manager.get_tool_version("dvdauthor")
         assert version == "0.7.2"
+
+    @patch("subprocess.run")
+    def test_get_tool_version_mkisofs(self, mock_run):
+        """Test getting mkisofs version."""
+        mock_run.return_value = Mock(returncode=0, stdout="mkisofs 1.1.11 (Linux)")
+
+        version = self.tool_manager.get_tool_version("mkisofs")
+        assert version == "1.1.11"
+
+    @patch("subprocess.run")
+    def test_get_tool_version_mkisofs_fallback(self, mock_run):
+        """Test getting mkisofs version with genisoimage fallback."""
+        # First call (mkisofs) fails, second call (genisoimage) succeeds
+        mock_run.side_effect = [
+            Mock(returncode=1, stderr="mkisofs not found"),
+            Mock(returncode=0, stdout="genisoimage 1.1.11 (Linux)"),
+        ]
+
+        version = self.tool_manager.get_tool_version("mkisofs")
+        assert version == "1.1.11"
+        assert mock_run.call_count == 2
 
     @patch("subprocess.run")
     def test_get_tool_version_failure(self, mock_run):
@@ -467,6 +540,39 @@ class TestToolManager:
             assert "version" in tool_status
             assert "path" in tool_status
 
+    @patch.object(ToolManager, "is_tool_available_locally")
+    @patch.object(ToolManager, "is_tool_available_system")
+    @patch.object(ToolManager, "validate_tool_functionality")
+    @patch.object(ToolManager, "get_tool_version")
+    @patch("shutil.which")
+    def test_check_tools_with_iso_generation(
+        self,
+        mock_which,
+        mock_get_version,
+        mock_validate,
+        mock_system_available,
+        mock_local_available,
+    ):
+        """Test checking tools when ISO generation is enabled."""
+        # Enable ISO generation
+        self.tool_manager.settings.generate_iso = True
+
+        # Mock return values
+        mock_local_available.return_value = True
+        mock_system_available.return_value = True
+        mock_validate.return_value = True
+        mock_get_version.return_value = "1.0.0"
+        mock_which.return_value = "/usr/bin/tool"
+
+        status = self.tool_manager.check_tools()
+
+        # Should include mkisofs when ISO generation is enabled
+        assert len(status) == 4
+        assert "ffmpeg" in status
+        assert "yt-dlp" in status
+        assert "dvdauthor" in status
+        assert "mkisofs" in status
+
     @patch.object(ToolManager, "check_tools")
     @patch.object(ToolManager, "download_tool")
     @patch("src.services.tool_manager.get_dvdauthor_install_instructions")
@@ -535,6 +641,30 @@ class TestToolManager:
         assert len(missing) == 1
         assert "dvdauthor" in missing[0]
         assert "brew install dvdauthor" in missing[0]
+
+    @patch.object(ToolManager, "check_tools")
+    @patch.object(ToolManager, "download_tool")
+    @patch("src.services.tool_manager.get_dvdauthor_install_instructions")
+    def test_ensure_tools_available_mkisofs_missing(
+        self, mock_instructions, mock_download, mock_check
+    ):
+        """Test ensuring tools when mkisofs is missing and ISO generation is enabled."""
+        # Enable ISO generation
+        self.tool_manager.settings.generate_iso = True
+
+        mock_check.return_value = {
+            "ffmpeg": {"functional": True},
+            "yt-dlp": {"functional": True},
+            "dvdauthor": {"functional": True},
+            "mkisofs": {"functional": False},
+        }
+
+        success, missing = self.tool_manager.ensure_tools_available()
+
+        assert success is False
+        assert len(missing) == 1
+        assert "mkisofs" in missing[0]
+        assert "Install with:" in missing[0]
 
     @patch.object(ToolManager, "check_tools")
     def test_get_tool_command_available(self, mock_check):

@@ -223,6 +223,12 @@ class ToolManager:
         # Special handling for dvdauthor since it's system-only
         if tool_name == "dvdauthor":
             available = shutil.which("dvdauthor") is not None
+        elif tool_name == "mkisofs":
+            # Check for mkisofs or genisoimage (either can be used)
+            available = (
+                shutil.which("mkisofs") is not None
+                or shutil.which("genisoimage") is not None
+            )
         else:
             available = shutil.which(tool_name) is not None
 
@@ -250,6 +256,9 @@ class ToolManager:
                 cmd = [str(tool_path) if tool_path else "yt-dlp", "--version"]
             elif tool_name == "dvdauthor":
                 cmd = ["dvdauthor", "--help"]
+            elif tool_name == "mkisofs":
+                # Try mkisofs first, fallback to genisoimage
+                cmd = ["mkisofs", "--version"]
             else:
                 logger.error(f"Unknown tool for validation: {tool_name}")
                 return False
@@ -258,14 +267,27 @@ class ToolManager:
             timeout = 30 if tool_name == "yt-dlp" else 10
             result = self._run_logged_subprocess(cmd, timeout=timeout)
 
-            # dvdauthor --help returns exit code 1 but is still functional
-            # if it produces output
+            # Special handling for different tools
             if (
                 tool_name == "dvdauthor"
                 and result.returncode == 1
                 and (result.stdout or result.stderr)
             ):
+                # dvdauthor --help returns exit code 1 but is still functional
                 functional = True
+            elif tool_name == "mkisofs" and result.returncode != 0:
+                # Try genisoimage as fallback
+                logger.debug("mkisofs not found, trying genisoimage as fallback")
+                try:
+                    fallback_cmd = ["genisoimage", "--version"]
+                    fallback_result = self._run_logged_subprocess(
+                        fallback_cmd, timeout=timeout
+                    )
+                    functional = fallback_result.returncode == 0
+                    if functional:
+                        logger.debug("Found genisoimage as mkisofs alternative")
+                except Exception:
+                    functional = False
             else:
                 functional = result.returncode == 0
 
@@ -305,6 +327,9 @@ class ToolManager:
                 cmd = [str(tool_path) if tool_path else "yt-dlp", "--version"]
             elif tool_name == "dvdauthor":
                 cmd = ["dvdauthor", "--help"]
+            elif tool_name == "mkisofs":
+                # Try mkisofs first, fallback to genisoimage
+                cmd = ["mkisofs", "--version"]
             else:
                 logger.error(f"Unknown tool for version check: {tool_name}")
                 return None
@@ -313,7 +338,26 @@ class ToolManager:
             timeout = 30 if tool_name == "yt-dlp" else 10
             result = self._run_logged_subprocess(cmd, timeout=timeout)
 
-            if result.returncode != 0:
+            # Special handling for mkisofs - try genisoimage fallback if fails
+            if tool_name == "mkisofs" and result.returncode != 0:
+                logger.debug("mkisofs version check failed, trying genisoimage")
+                try:
+                    fallback_cmd = ["genisoimage", "--version"]
+                    fallback_result = self._run_logged_subprocess(
+                        fallback_cmd, timeout=timeout
+                    )
+                    if fallback_result.returncode == 0:
+                        result = fallback_result
+                        logger.debug("Using genisoimage version info")
+                    else:
+                        logger.warning(
+                            "Both mkisofs and genisoimage version checks failed"
+                        )
+                        return None
+                except Exception:
+                    logger.warning("Both mkisofs and genisoimage version checks failed")
+                    return None
+            elif result.returncode != 0:
                 logger.warning(f"Failed to get version for {tool_name}")
                 return None
 
@@ -347,6 +391,26 @@ class ToolManager:
                             version = "system"
                             logger.debug(f"Detected {tool_name} version: {version}")
                             return version
+            elif tool_name == "mkisofs":
+                # mkisofs/genisoimage version output varies
+                # Look for version pattern in any line
+                import re
+
+                for line in output.split("\n"):
+                    # Pattern matches tool versions like "mkisofs 1.1.11"
+                    version_match = re.search(
+                        r"(?:mkisofs|genisoimage|version)\s+(\d+\.\d+(?:\.\d+)?)",
+                        line,
+                        re.IGNORECASE,
+                    )
+                    if version_match:
+                        version = version_match.group(1)
+                        logger.debug(f"Extracted {tool_name} version: {version}")
+                        return version
+                # Fallback for minimal version info
+                version = "system"
+                logger.debug(f"Detected {tool_name} version: {version}")
+                return version
 
             logger.warning(f"Could not extract version from {tool_name} output")
             return None
@@ -568,7 +632,15 @@ class ToolManager:
 
         tools_status = {}
 
-        for tool_name in ["ffmpeg", "yt-dlp", "dvdauthor"]:
+        # Base required tools
+        required_tools = ["ffmpeg", "yt-dlp", "dvdauthor"]
+
+        # Add ISO creation tools if ISO generation is enabled
+        if self.settings.generate_iso:
+            # Check for mkisofs or genisoimage (either can be used)
+            required_tools.append("mkisofs")
+
+        for tool_name in required_tools:
             logger.debug(f"Checking status of {tool_name}")
 
             status: Dict[str, Any] = {
@@ -579,8 +651,12 @@ class ToolManager:
                 "path": None,
             }
 
-            # Check local availability first (unless using system tools)
-            if not self.settings.use_system_tools and tool_name != "dvdauthor":
+            # Check local availability (unless using system tools)
+            system_only_tools = ["dvdauthor", "mkisofs"]
+            if (
+                not self.settings.use_system_tools
+                and tool_name not in system_only_tools
+            ):
                 status["available_locally"] = self.is_tool_available_locally(tool_name)
                 if status["available_locally"]:
                     tool_path = self.get_tool_path(tool_name)
@@ -595,9 +671,13 @@ class ToolManager:
             if status["available_system"] and not status["functional"]:
                 status["functional"] = self.validate_tool_functionality(tool_name)
                 status["version"] = self.get_tool_version(tool_name)
-                status["path"] = shutil.which(
-                    tool_name if tool_name != "dvdauthor" else "dvdauthor"
-                )
+                if tool_name == "mkisofs":
+                    # Check for mkisofs or genisoimage
+                    status["path"] = shutil.which("mkisofs") or shutil.which(
+                        "genisoimage"
+                    )
+                else:
+                    status["path"] = shutil.which(tool_name)
 
             tools_status[tool_name] = status
             logger.debug(f"Status for {tool_name}: {status}")
@@ -632,6 +712,15 @@ class ToolManager:
                     instructions = get_dvdauthor_install_instructions()
                     missing_tools.append(f"{tool_name}: {instructions}")
                     logger.warning(f"dvdauthor not available: {instructions}")
+                elif tool_name == "mkisofs":
+                    # mkisofs is system-only, provide installation instructions
+                    missing_tools.append(
+                        f"{tool_name}: Not available. Install with:\n"
+                        "  macOS: brew install dvdrtools\n"
+                        "  Ubuntu/Debian: sudo apt install genisoimage\n"
+                        "  RHEL/CentOS: sudo yum install genisoimage"
+                    )
+                    logger.warning("mkisofs/genisoimage not available for ISO creation")
                 elif self.settings.download_tools:
                     # Try to download the tool
                     try:
@@ -665,7 +754,10 @@ class ToolManager:
 
             # Verify downloaded tools are functional
             for tool_name, status in tools_status.items():
-                if not status["functional"] and tool_name != "dvdauthor":
+                if not status["functional"] and tool_name not in [
+                    "dvdauthor",
+                    "mkisofs",
+                ]:
                     # Tool was attempted to be downloaded but still not functional
                     if f"{tool_name}: Download failed" not in str(missing_tools):
                         missing_tools.append(

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     menu_title: Optional[str] = Field(default=None)
     generate_iso: bool = Field(default=True)
     video_format: str = Field(default="NTSC")
+    aspect_ratio: str = Field(default="16:9")
 
     # Cache settings
     force_download: bool = Field(default=False)
@@ -101,6 +102,15 @@ class Settings(BaseSettings):
         if v.upper() not in valid_formats:
             raise ValueError(f"Video format must be one of: {', '.join(valid_formats)}")
         return v.upper()
+
+    @field_validator("aspect_ratio")
+    @classmethod
+    def validate_aspect_ratio(cls, v: str) -> str:
+        """Validate aspect ratio format."""
+        valid_ratios = ["4:3", "16:9"]
+        if v not in valid_ratios:
+            raise ValueError(f"Aspect ratio must be one of: {', '.join(valid_ratios)}")
+        return v
 
     @field_validator("cache_dir", "output_dir", "temp_dir", "bin_dir", "log_dir")
     @classmethod
