@@ -405,7 +405,7 @@ def main() -> int:
                     logger.error("No videos were successfully converted")
                     return 1
 
-                logger.info(f"Converted {len(converted_videos)} videos successfully")
+                logger.debug(f"Converted {len(converted_videos)} videos successfully")
 
             logger.info("Step 2.5: Checking DVD capacity...")
             with operation_context("capacity_check"):

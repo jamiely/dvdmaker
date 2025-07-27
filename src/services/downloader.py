@@ -526,7 +526,7 @@ class VideoDownloader:
             if successful_downloads == total_videos:
                 message = f"Downloaded all {total_videos} videos successfully"
                 tracker.complete(message)
-                logger.info(message)
+                logger.debug(message)
             else:
                 failed_count = total_videos - successful_downloads
                 message = (
