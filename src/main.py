@@ -442,9 +442,9 @@ def main() -> int:
                     create_iso=settings.generate_iso,
                 )
 
-                logger.info(f"DVD structure created at: {authored_dvd.video_ts_dir}")
+                logger.debug(f"DVD structure created at: {authored_dvd.video_ts_dir}")
                 if authored_dvd.iso_file:
-                    logger.info(f"ISO image created at: {authored_dvd.iso_file}")
+                    logger.debug(f"ISO image created at: {authored_dvd.iso_file}")
 
             # Report final metrics
             end_time = time.time()
