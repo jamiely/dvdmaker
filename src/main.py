@@ -464,6 +464,12 @@ def main() -> int:
                     f"({capacity_result.excluded_size_gb:.2f}GB)"
                 )
             logger.info(f"Total processing time: {total_time_str}")
+
+            # Show output locations
+            logger.info(f"DVD structure: {authored_dvd.video_ts_dir}")
+            if authored_dvd.iso_file:
+                logger.info(f"ISO file: {authored_dvd.iso_file}")
+
             logger.info("DVD creation completed successfully!")
             return 0
 
