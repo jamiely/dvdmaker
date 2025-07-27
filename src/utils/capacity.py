@@ -3,10 +3,11 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
-from ..models.video import VideoMetadata
 from ..utils.logging import get_logger
+from ..utils.time_format import format_duration_human_readable
 
 if TYPE_CHECKING:
+    from ..models.video import VideoMetadata
     from ..services.converter import ConvertedVideoFile
 
 logger = get_logger(__name__)
@@ -16,7 +17,7 @@ logger = get_logger(__name__)
 class ExcludedVideo:
     """Information about a video that was excluded due to capacity constraints."""
 
-    metadata: VideoMetadata
+    metadata: "VideoMetadata"
     size_mb: float
 
     @property
@@ -48,6 +49,14 @@ class CapacityResult:
     def excluded_size_gb(self) -> float:
         """Get total size of excluded videos in GB."""
         return self.excluded_size_mb / 1024
+
+    @property
+    def total_duration_human_readable(self) -> str:
+        """Get total duration of included videos in human-readable format."""
+        total_duration_seconds = sum(
+            video.metadata.duration for video in self.included_videos
+        )
+        return format_duration_human_readable(total_duration_seconds)
 
 
 def select_videos_for_dvd_capacity(

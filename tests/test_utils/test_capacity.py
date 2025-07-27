@@ -64,6 +64,7 @@ class TestCapacityResult:
         assert result.has_exclusions is True
         assert result.total_size_gb == pytest.approx(0.976, rel=1e-2)  # 1000/1024
         assert result.excluded_size_gb == pytest.approx(0.488, rel=1e-2)  # 500/1024
+        assert result.total_duration_human_readable == "5m"  # 300s duration
 
     def test_capacity_result_no_exclusions(self, sample_converted_video):
         """Test CapacityResult with no exclusions."""
@@ -77,6 +78,7 @@ class TestCapacityResult:
         assert result.has_exclusions is False
         assert result.total_size_gb == pytest.approx(0.976, rel=1e-2)
         assert result.excluded_size_gb == 0.0
+        assert result.total_duration_human_readable == "5m"  # 300s duration
 
 
 class TestSelectVideosForDvdCapacity:

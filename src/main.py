@@ -8,6 +8,7 @@ and authoring a complete DVD structure.
 
 import argparse
 import sys
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -19,6 +20,7 @@ from .services.dvd_author import DVDAuthor, DVDAuthorError
 from .services.tool_manager import ToolManager, ToolManagerError
 from .utils.capacity import log_excluded_videos, select_videos_for_dvd_capacity
 from .utils.logging import get_logger, operation_context, setup_logging
+from .utils.time_format import format_duration_human_readable
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -316,6 +318,7 @@ def main() -> int:
         logger = get_logger(__name__)
 
         with operation_context("dvd_creation", playlist_url=args.playlist_url):
+            start_time = time.time()
             logger.info(f"Starting DVD creation for playlist: {args.playlist_url}")
             logger.info(f"Output directory: {settings.output_dir}")
 
@@ -375,7 +378,11 @@ def main() -> int:
                     return 1
 
                 available_count = len(playlist.get_available_videos())
-                logger.info(f"Downloaded {available_count} videos successfully")
+                total_duration = playlist.total_duration_human_readable
+                logger.info(
+                    f"Downloaded {available_count} videos successfully "
+                    f"(total duration: {total_duration})"
+                )
 
             logger.info("Step 2: Converting videos to DVD format...")
             with operation_context("video_conversion"):
@@ -439,6 +446,24 @@ def main() -> int:
                 if authored_dvd.iso_file:
                     logger.info(f"ISO image created at: {authored_dvd.iso_file}")
 
+            # Report final metrics
+            end_time = time.time()
+            total_time = int(end_time - start_time)
+            total_time_str = format_duration_human_readable(total_time)
+
+            logger.info("=== DVD Creation Summary ===")
+            logger.info(
+                f"Total videos processed: {len(final_videos)} "
+                f"(duration: {capacity_result.total_duration_human_readable})"
+            )
+            logger.info(f"Total size: {capacity_result.total_size_gb:.2f}GB")
+            if capacity_result.has_exclusions:
+                excluded_count = len(capacity_result.excluded_videos)
+                logger.info(
+                    f"Videos excluded: {excluded_count} "
+                    f"({capacity_result.excluded_size_gb:.2f}GB)"
+                )
+            logger.info(f"Total processing time: {total_time_str}")
             logger.info("DVD creation completed successfully!")
             return 0
 

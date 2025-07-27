@@ -501,6 +501,7 @@ class TestMainFunction:
         mock_playlist = Mock()
         mock_playlist.get_available_videos.return_value = [Mock()]
         mock_playlist.metadata.title = "Test Playlist"
+        mock_playlist.total_duration_human_readable = "5m"
 
         mock_downloader_instance = Mock()
         mock_downloader_instance.download_playlist.return_value = mock_playlist
@@ -516,6 +517,7 @@ class TestMainFunction:
         mock_converted_video.metadata = Mock()
         mock_converted_video.metadata.video_id = "test123"
         mock_converted_video.metadata.title = "Test Video"
+        mock_converted_video.metadata.duration = 300  # 5 minutes
         mock_converter_instance = Mock()
         mock_converter_instance.convert_videos.return_value = [mock_converted_video]
         mock_converter.return_value = mock_converter_instance
