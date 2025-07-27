@@ -101,7 +101,7 @@ class VideoDownloader:
         # Build full command
         cmd = [str(yt_dlp_path)] + args
 
-        logger.debug(f"Running yt-dlp command: {' '.join(cmd)}")
+        logger.info(f"Executing yt-dlp command: {' '.join(cmd)}")
 
         try:
             result = subprocess.run(
@@ -111,6 +111,18 @@ class VideoDownloader:
                 timeout=timeout,
                 check=False,  # We'll check return code manually
             )
+
+            # Log command completion and output
+            logger.info(f"yt-dlp completed with return code {result.returncode}")
+            
+            if result.stdout:
+                logger.debug(f"yt-dlp stdout: {result.stdout.strip()}")
+            
+            if result.stderr:
+                if result.returncode == 0:
+                    logger.debug(f"yt-dlp stderr: {result.stderr.strip()}")
+                else:
+                    logger.warning(f"yt-dlp stderr: {result.stderr.strip()}")
 
             if result.returncode != 0:
                 error_msg = (

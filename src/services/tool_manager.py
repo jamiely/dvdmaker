@@ -78,6 +78,66 @@ class ToolManager:
 
         logger.debug(f"ToolManager initialized with bin_dir: {self.bin_dir}")
 
+    def _run_logged_subprocess(
+        self,
+        cmd: List[str],
+        timeout: Optional[int] = None,
+        capture_output: bool = True,
+        text: bool = True,
+        **kwargs: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        """Run subprocess with comprehensive logging.
+        
+        Args:
+            cmd: Command to execute
+            timeout: Optional timeout in seconds
+            capture_output: Whether to capture output
+            text: Whether to return text output
+            **kwargs: Additional arguments for subprocess.run
+            
+        Returns:
+            CompletedProcess result
+        """
+        cmd_str = " ".join(str(arg) for arg in cmd)
+        logger.info(f"Executing command: {cmd_str}")
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=capture_output,
+                text=text,
+                timeout=timeout,
+                **kwargs,
+            )
+            
+            # Log command completion and output
+            logger.info(f"Command completed with return code {result.returncode}: {cmd_str}")
+            
+            if capture_output and result.stdout:
+                logger.debug(f"Command stdout: {result.stdout.strip()}")
+            
+            if capture_output and result.stderr:
+                if result.returncode == 0:
+                    logger.debug(f"Command stderr: {result.stderr.strip()}")
+                else:
+                    logger.warning(f"Command stderr: {result.stderr.strip()}")
+            
+            return result
+            
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"Command timed out after {timeout}s: {cmd_str}")
+            raise
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Command failed with return code {e.returncode}: {cmd_str}")
+            if e.stdout:
+                logger.debug(f"Failed command stdout: {e.stdout.strip()}")
+            if e.stderr:
+                logger.debug(f"Failed command stderr: {e.stderr.strip()}")
+            raise
+        except Exception as e:
+            logger.error(f"Command execution failed: {cmd_str} - {e}")
+            raise
+
     def get_tool_versions(self) -> Dict[str, str]:
         """Load tool versions from tool_versions.json.
 
@@ -189,9 +249,15 @@ class ToolManager:
                 logger.error(f"Unknown tool for validation: {tool_name}")
                 return False
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            # Use longer timeout for yt-dlp as it can be slow on first run
+            timeout = 30 if tool_name == "yt-dlp" else 10
+            result = self._run_logged_subprocess(cmd, timeout=timeout)
 
-            functional = result.returncode == 0
+            # dvdauthor --help returns exit code 1 but is still functional if it produces output
+            if tool_name == "dvdauthor" and result.returncode == 1 and (result.stdout or result.stderr):
+                functional = True
+            else:
+                functional = result.returncode == 0
 
             if functional:
                 logger.debug(f"Tool {tool_name} is functional")
@@ -233,7 +299,9 @@ class ToolManager:
                 logger.error(f"Unknown tool for version check: {tool_name}")
                 return None
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            # Use longer timeout for yt-dlp as it can be slow on first run
+            timeout = 30 if tool_name == "yt-dlp" else 10
+            result = self._run_logged_subprocess(cmd, timeout=timeout)
 
             if result.returncode != 0:
                 logger.warning(f"Failed to get version for {tool_name}")
@@ -254,15 +322,20 @@ class ToolManager:
                 logger.debug(f"Extracted {tool_name} version: {version}")
                 return version
             elif tool_name == "dvdauthor":
-                # dvdauthor help output contains version info
-                for line in output.split("\n"):
-                    if "dvdauthor" in line.lower() and any(
-                        char.isdigit() for char in line
-                    ):
-                        # Simple heuristic - dvdauthor version extraction is tricky
-                        version = "system"
-                        logger.debug(f"Detected {tool_name} version: {version}")
-                        return version
+                # dvdauthor help output contains version info in stderr
+                output_to_check = result.stderr if result.stderr else output
+                for line in output_to_check.split("\n"):
+                    if "dvdauthor" in line.lower() and "version" in line.lower():
+                        # Extract version from line like "DVDAuthor::dvdauthor, version 0.7.2."
+                        parts = line.split("version")
+                        if len(parts) > 1:
+                            version = parts[1].strip().rstrip(".").split()[0]
+                            logger.debug(f"Extracted {tool_name} version: {version}")
+                            return version
+                        else:
+                            version = "system"
+                            logger.debug(f"Detected {tool_name} version: {version}")
+                            return version
 
             logger.warning(f"Could not extract version from {tool_name} output")
             return None
@@ -525,6 +598,8 @@ class ToolManager:
         missing_tools: List[str] = []
 
         for tool_name, status in tools_status.items():
+            logger.debug(f"Processing tool {tool_name} with status: {status}")
+            
             if not status["functional"]:
                 if tool_name == "dvdauthor":
                     # dvdauthor must be installed by user
@@ -537,15 +612,26 @@ class ToolManager:
                         logger.info(f"Attempting to download {tool_name}")
                         self.download_tool(tool_name)
                         logger.info(f"Successfully downloaded {tool_name}")
+                        # Re-verify after download
+                        post_download_status = self.check_tools().get(tool_name, {})
+                        if not post_download_status.get("functional", False):
+                            missing_tools.append(f"{tool_name}: Downloaded but not functional")
+                            logger.error(f"{tool_name} downloaded but validation failed: {post_download_status}")
                     except ToolDownloadError as e:
                         missing_tools.append(f"{tool_name}: Download failed - {e}")
                         logger.error(f"Failed to download {tool_name}: {e}")
+                    except Exception as e:
+                        missing_tools.append(f"{tool_name}: Unexpected error - {e}")
+                        logger.error(f"Unexpected error downloading {tool_name}: {e}")
                 else:
                     missing_tools.append(
                         f"{tool_name}: Not available and auto-download disabled"
                     )
                     logger.warning(
-                        f"{tool_name} not available and auto-download disabled"
+                        f"{tool_name} not available and auto-download disabled. "
+                        f"Status: available_locally={status['available_locally']}, "
+                        f"available_system={status['available_system']}, "
+                        f"functional={status['functional']}, path={status['path']}"
                     )
 
         success = len(missing_tools) == 0

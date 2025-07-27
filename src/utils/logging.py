@@ -137,16 +137,17 @@ class SensitiveDataFilter(logging.Filter):
     """Filter to remove sensitive information from logs."""
 
     SENSITIVE_PATTERNS = {
-        "password",
-        "token",
-        "key",
-        "secret",
-        "auth",
-        "credential",
-        "api_key",
-        "access_token",
-        "refresh_token",
-        "session_id",
+        "password=",
+        "token=",
+        "api_key=",
+        "secret=",
+        "auth=",
+        "credential=",
+        "access_token=",
+        "refresh_token=",
+        "session_id=",
+        "Authorization:",
+        "Bearer ",
     }
 
     def filter(self, record: logging.LogRecord) -> bool:

@@ -411,7 +411,7 @@ class DVDAuthor:
 
         cmd = [str(dvdauthor_path), "-x", str(xml_file)]
 
-        logger.debug(f"Executing dvdauthor command: {' '.join(cmd)}")
+        logger.info(f"Executing dvdauthor command: {' '.join(cmd)}")
 
         import time
 
