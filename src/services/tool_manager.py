@@ -235,19 +235,19 @@ class ToolManager:
         logger.debug(f"Tool {tool_name} system availability: {available}")
         return available
 
-    def validate_tool_functionality(
+    def _validate_and_get_version(
         self, tool_name: str, tool_path: Optional[Path] = None
-    ) -> bool:
-        """Validate that a tool is functional by running a basic command.
+    ) -> Tuple[bool, Optional[str]]:
+        """Validate tool functionality and get version in a single operation.
 
         Args:
             tool_name: Name of the tool to validate
             tool_path: Optional specific path to the tool
 
         Returns:
-            True if tool is functional
+            Tuple of (is_functional, version_string)
         """
-        logger.debug(f"Validating functionality of {tool_name}")
+        logger.debug(f"Validating functionality and getting version for {tool_name}")
 
         try:
             if tool_name == "ffmpeg":
@@ -257,88 +257,16 @@ class ToolManager:
             elif tool_name == "dvdauthor":
                 cmd = ["dvdauthor", "--help"]
             elif tool_name == "mkisofs":
-                # Try mkisofs first, fallback to genisoimage
                 cmd = ["mkisofs", "--version"]
             else:
                 logger.error(f"Unknown tool for validation: {tool_name}")
-                return False
+                return False, None
 
             # Use longer timeout for yt-dlp as it can be slow on first run
             timeout = 30 if tool_name == "yt-dlp" else 10
             result = self._run_logged_subprocess(cmd, timeout=timeout)
 
-            # Special handling for different tools
-            if (
-                tool_name == "dvdauthor"
-                and result.returncode == 1
-                and (result.stdout or result.stderr)
-            ):
-                # dvdauthor --help returns exit code 1 but is still functional
-                functional = True
-            elif tool_name == "mkisofs" and result.returncode != 0:
-                # Try genisoimage as fallback
-                logger.debug("mkisofs not found, trying genisoimage as fallback")
-                try:
-                    fallback_cmd = ["genisoimage", "--version"]
-                    fallback_result = self._run_logged_subprocess(
-                        fallback_cmd, timeout=timeout
-                    )
-                    functional = fallback_result.returncode == 0
-                    if functional:
-                        logger.debug("Found genisoimage as mkisofs alternative")
-                except Exception:
-                    functional = False
-            else:
-                functional = result.returncode == 0
-
-            if functional:
-                logger.debug(f"Tool {tool_name} is functional")
-            else:
-                logger.warning(f"Tool {tool_name} validation failed: {result.stderr}")
-
-            return functional
-
-        except (
-            subprocess.TimeoutExpired,
-            subprocess.SubprocessError,
-            FileNotFoundError,
-        ) as e:
-            logger.warning(f"Tool {tool_name} validation failed with exception: {e}")
-            return False
-
-    def get_tool_version(
-        self, tool_name: str, tool_path: Optional[Path] = None
-    ) -> Optional[str]:
-        """Get the version of a tool.
-
-        Args:
-            tool_name: Name of the tool
-            tool_path: Optional specific path to the tool
-
-        Returns:
-            Version string or None if unable to determine
-        """
-        logger.debug(f"Getting version for {tool_name}")
-
-        try:
-            if tool_name == "ffmpeg":
-                cmd = [str(tool_path) if tool_path else "ffmpeg", "-version"]
-            elif tool_name == "yt-dlp":
-                cmd = [str(tool_path) if tool_path else "yt-dlp", "--version"]
-            elif tool_name == "dvdauthor":
-                cmd = ["dvdauthor", "--help"]
-            elif tool_name == "mkisofs":
-                # Try mkisofs first, fallback to genisoimage
-                cmd = ["mkisofs", "--version"]
-            else:
-                logger.error(f"Unknown tool for version check: {tool_name}")
-                return None
-
-            # Use longer timeout for yt-dlp as it can be slow on first run
-            timeout = 30 if tool_name == "yt-dlp" else 10
-            result = self._run_logged_subprocess(cmd, timeout=timeout)
-
-            # Special handling for mkisofs - try genisoimage fallback if fails
+            # Handle mkisofs fallback to genisoimage
             if tool_name == "mkisofs" and result.returncode != 0:
                 logger.debug("mkisofs version check failed, trying genisoimage")
                 try:
@@ -353,75 +281,139 @@ class ToolManager:
                         logger.warning(
                             "Both mkisofs and genisoimage version checks failed"
                         )
-                        return None
+                        return False, None
                 except Exception:
                     logger.warning("Both mkisofs and genisoimage version checks failed")
-                    return None
+                    return False, None
+
+            # Determine if tool is functional
+            if (
+                tool_name == "dvdauthor"
+                and result.returncode == 1
+                and (result.stdout or result.stderr)
+            ):
+                # dvdauthor --help returns exit code 1 but is still functional
+                functional = True
             elif result.returncode != 0:
-                logger.warning(f"Failed to get version for {tool_name}")
-                return None
+                logger.warning(f"Tool {tool_name} validation failed: {result.stderr}")
+                return False, None
+            else:
+                functional = True
 
             # Extract version from output
-            output = result.stdout
-            if tool_name == "ffmpeg":
-                # ffmpeg version output format: "ffmpeg version 4.4.0-0ubuntu1"
-                for line in output.split("\n"):
-                    if line.startswith("ffmpeg version"):
-                        version = line.split()[2]
-                        logger.debug(f"Extracted {tool_name} version: {version}")
-                        return version
-            elif tool_name == "yt-dlp":
-                # yt-dlp outputs just the version string
-                version = output.strip()
-                logger.debug(f"Extracted {tool_name} version: {version}")
-                return version
-            elif tool_name == "dvdauthor":
-                # dvdauthor help output contains version info in stderr
-                output_to_check = result.stderr if result.stderr else output
-                for line in output_to_check.split("\n"):
-                    if "dvdauthor" in line.lower() and "version" in line.lower():
-                        # Extract version from line like
-                        # "DVDAuthor::dvdauthor, version 0.7.2."
-                        parts = line.split("version")
-                        if len(parts) > 1:
-                            version = parts[1].strip().rstrip(".").split()[0]
-                            logger.debug(f"Extracted {tool_name} version: {version}")
-                            return version
-                        else:
-                            version = "system"
-                            logger.debug(f"Detected {tool_name} version: {version}")
-                            return version
-            elif tool_name == "mkisofs":
-                # mkisofs/genisoimage version output varies
-                # Look for version pattern in any line
-                import re
+            version = self._extract_version_from_output(
+                tool_name, result.stdout, result.stderr
+            )
 
-                for line in output.split("\n"):
-                    # Pattern matches tool versions like "mkisofs 1.1.11"
-                    version_match = re.search(
-                        r"(?:mkisofs|genisoimage|version)\s+(\d+\.\d+(?:\.\d+)?)",
-                        line,
-                        re.IGNORECASE,
-                    )
-                    if version_match:
-                        version = version_match.group(1)
-                        logger.debug(f"Extracted {tool_name} version: {version}")
-                        return version
-                # Fallback for minimal version info
-                version = "system"
-                logger.debug(f"Detected {tool_name} version: {version}")
-                return version
+            if functional:
+                logger.debug(f"Tool {tool_name} is functional, version: {version}")
 
-            logger.warning(f"Could not extract version from {tool_name} output")
-            return None
+            return functional, version
 
         except (
             subprocess.TimeoutExpired,
             subprocess.SubprocessError,
             FileNotFoundError,
         ) as e:
-            logger.warning(f"Failed to get version for {tool_name}: {e}")
-            return None
+            logger.warning(f"Tool {tool_name} validation failed with exception: {e}")
+            return False, None
+
+    def _extract_version_from_output(
+        self, tool_name: str, stdout: str, stderr: str = ""
+    ) -> Optional[str]:
+        """Extract version information from command output.
+
+        Args:
+            tool_name: Name of the tool
+            stdout: Standard output from version command
+            stderr: Standard error from version command
+
+        Returns:
+            Extracted version string or None
+        """
+        output = stdout
+
+        if tool_name == "ffmpeg":
+            # ffmpeg version output format: "ffmpeg version 4.4.0-0ubuntu1"
+            for line in output.split("\n"):
+                if line.startswith("ffmpeg version"):
+                    version = line.split()[2]
+                    logger.debug(f"Extracted {tool_name} version: {version}")
+                    return version
+        elif tool_name == "yt-dlp":
+            # yt-dlp outputs just the version string
+            version = output.strip()
+            logger.debug(f"Extracted {tool_name} version: {version}")
+            return version
+        elif tool_name == "dvdauthor":
+            # dvdauthor help output contains version info in stderr
+            output_to_check = stderr if stderr else output
+            for line in output_to_check.split("\n"):
+                if "dvdauthor" in line.lower() and "version" in line.lower():
+                    # Extract version from line like
+                    # "DVDAuthor::dvdauthor, version 0.7.2."
+                    parts = line.split("version")
+                    if len(parts) > 1:
+                        version = parts[1].strip().rstrip(".").split()[0]
+                        logger.debug(f"Extracted {tool_name} version: {version}")
+                        return version
+                    else:
+                        version = "system"
+                        logger.debug(f"Detected {tool_name} version: {version}")
+                        return version
+        elif tool_name == "mkisofs":
+            # mkisofs/genisoimage version output varies
+            # Look for version pattern in any line
+            import re
+
+            for line in output.split("\n"):
+                # Pattern matches tool versions like "mkisofs 1.1.11"
+                version_match = re.search(
+                    r"(?:mkisofs|genisoimage|version)\s+(\d+\.\d+(?:\.\d+)?)",
+                    line,
+                    re.IGNORECASE,
+                )
+                if version_match:
+                    version = version_match.group(1)
+                    logger.debug(f"Extracted {tool_name} version: {version}")
+                    return version
+            # Fallback for minimal version info
+            version = "system"
+            logger.debug(f"Detected {tool_name} version: {version}")
+            return version
+
+        logger.warning(f"Could not extract version from {tool_name} output")
+        return None
+
+    def validate_tool_functionality(
+        self, tool_name: str, tool_path: Optional[Path] = None
+    ) -> bool:
+        """Validate that a tool is functional by running a basic command.
+
+        Args:
+            tool_name: Name of the tool to validate
+            tool_path: Optional specific path to the tool
+
+        Returns:
+            True if tool is functional
+        """
+        functional, _ = self._validate_and_get_version(tool_name, tool_path)
+        return functional
+
+    def get_tool_version(
+        self, tool_name: str, tool_path: Optional[Path] = None
+    ) -> Optional[str]:
+        """Get the version of a tool.
+
+        Args:
+            tool_name: Name of the tool
+            tool_path: Optional specific path to the tool
+
+        Returns:
+            Version string or None if unable to determine
+        """
+        _, version = self._validate_and_get_version(tool_name, tool_path)
+        return version
 
     def download_file(self, url: str, destination: Path) -> None:
         """Download a file from a URL.
@@ -567,13 +559,14 @@ class ToolManager:
             # Make executable
             self.make_executable(final_path)
 
-            # Validate the downloaded tool
-            if not self.validate_tool_functionality(tool_name, final_path):
+            # Validate the downloaded tool and get version in one operation
+            functional, version = self._validate_and_get_version(tool_name, final_path)
+            if not functional:
                 final_path.unlink()  # Clean up
                 raise ToolDownloadError(f"Downloaded {tool_name} failed validation")
 
-            # Update tool versions
-            version = self.get_tool_version(tool_name, final_path) or "downloaded"
+            # Use the version we already got, or fallback
+            version = version or "downloaded"
             versions = self.get_tool_versions()
             versions[tool_name] = version
             self.save_tool_versions(versions)
@@ -660,17 +653,21 @@ class ToolManager:
                 status["available_locally"] = self.is_tool_available_locally(tool_name)
                 if status["available_locally"]:
                     tool_path = self.get_tool_path(tool_name)
-                    status["functional"] = self.validate_tool_functionality(
+                    # Use combined validation and version check to avoid duplicates
+                    functional, version = self._validate_and_get_version(
                         tool_name, tool_path
                     )
-                    status["version"] = self.get_tool_version(tool_name, tool_path)
+                    status["functional"] = functional
+                    status["version"] = version
                     status["path"] = str(tool_path)
 
             # Check system availability only if local tool not functional
             status["available_system"] = self.is_tool_available_system(tool_name)
             if status["available_system"] and not status["functional"]:
-                status["functional"] = self.validate_tool_functionality(tool_name)
-                status["version"] = self.get_tool_version(tool_name)
+                # Use combined validation and version check to avoid duplicates
+                functional, version = self._validate_and_get_version(tool_name)
+                status["functional"] = functional
+                status["version"] = version
                 if tool_name == "mkisofs":
                     # Check for mkisofs or genisoimage
                     status["path"] = shutil.which("mkisofs") or shutil.which(

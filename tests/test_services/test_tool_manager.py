@@ -170,7 +170,9 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_validate_tool_functionality_ffmpeg(self, mock_run):
         """Test tool functionality validation for ffmpeg."""
-        mock_run.return_value = Mock(returncode=0)
+        mock_run.return_value = Mock(
+            returncode=0, stdout="ffmpeg version 4.4.0", stderr=""
+        )
 
         assert self.tool_manager.validate_tool_functionality("ffmpeg") is True
         mock_run.assert_called_once_with(
@@ -180,7 +182,7 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_validate_tool_functionality_ytdlp(self, mock_run):
         """Test tool functionality validation for yt-dlp."""
-        mock_run.return_value = Mock(returncode=0)
+        mock_run.return_value = Mock(returncode=0, stdout="2023.01.06", stderr="")
 
         assert self.tool_manager.validate_tool_functionality("yt-dlp") is True
         mock_run.assert_called_once_with(
@@ -190,7 +192,11 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_validate_tool_functionality_dvdauthor(self, mock_run):
         """Test tool functionality validation for dvdauthor."""
-        mock_run.return_value = Mock(returncode=0)
+        mock_run.return_value = Mock(
+            returncode=0,
+            stdout="DVDAuthor 0.7.2",
+            stderr="DVDAuthor::dvdauthor, version 0.7.2.",
+        )
 
         assert self.tool_manager.validate_tool_functionality("dvdauthor") is True
         mock_run.assert_called_once_with(
@@ -200,7 +206,9 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_validate_tool_functionality_mkisofs(self, mock_run):
         """Test tool functionality validation for mkisofs."""
-        mock_run.return_value = Mock(returncode=0)
+        mock_run.return_value = Mock(
+            returncode=0, stdout="mkisofs 1.1.11 (Linux)", stderr=""
+        )
 
         assert self.tool_manager.validate_tool_functionality("mkisofs") is True
         mock_run.assert_called_once_with(
@@ -229,7 +237,9 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_validate_tool_functionality_with_path(self, mock_run):
         """Test tool functionality validation with specific path."""
-        mock_run.return_value = Mock(returncode=0)
+        mock_run.return_value = Mock(
+            returncode=0, stdout="ffmpeg version 4.4.0", stderr=""
+        )
         tool_path = Path("/custom/path/ffmpeg")
 
         assert (
@@ -245,7 +255,7 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_validate_tool_functionality_failure(self, mock_run):
         """Test tool functionality validation failure."""
-        mock_run.return_value = Mock(returncode=1, stderr="Error")
+        mock_run.return_value = Mock(returncode=1, stdout="", stderr="Error")
 
         assert self.tool_manager.validate_tool_functionality("ffmpeg") is False
 
@@ -264,7 +274,9 @@ class TestToolManager:
     def test_get_tool_version_ffmpeg(self, mock_run):
         """Test getting ffmpeg version."""
         mock_run.return_value = Mock(
-            returncode=0, stdout="ffmpeg version 4.4.0-0ubuntu1 Copyright (c) 2000-2021"
+            returncode=0,
+            stdout="ffmpeg version 4.4.0-0ubuntu1 Copyright (c) 2000-2021",
+            stderr="",
         )
 
         version = self.tool_manager.get_tool_version("ffmpeg")
@@ -273,7 +285,7 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_get_tool_version_ytdlp(self, mock_run):
         """Test getting yt-dlp version."""
-        mock_run.return_value = Mock(returncode=0, stdout="2023.01.06\n")
+        mock_run.return_value = Mock(returncode=0, stdout="2023.01.06\n", stderr="")
 
         version = self.tool_manager.get_tool_version("yt-dlp")
         assert version == "2023.01.06"
@@ -293,7 +305,9 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_get_tool_version_mkisofs(self, mock_run):
         """Test getting mkisofs version."""
-        mock_run.return_value = Mock(returncode=0, stdout="mkisofs 1.1.11 (Linux)")
+        mock_run.return_value = Mock(
+            returncode=0, stdout="mkisofs 1.1.11 (Linux)", stderr=""
+        )
 
         version = self.tool_manager.get_tool_version("mkisofs")
         assert version == "1.1.11"
@@ -303,8 +317,8 @@ class TestToolManager:
         """Test getting mkisofs version with genisoimage fallback."""
         # First call (mkisofs) fails, second call (genisoimage) succeeds
         mock_run.side_effect = [
-            Mock(returncode=1, stderr="mkisofs not found"),
-            Mock(returncode=0, stdout="genisoimage 1.1.11 (Linux)"),
+            Mock(returncode=1, stdout="", stderr="mkisofs not found"),
+            Mock(returncode=0, stdout="genisoimage 1.1.11 (Linux)", stderr=""),
         ]
 
         version = self.tool_manager.get_tool_version("mkisofs")
@@ -314,7 +328,7 @@ class TestToolManager:
     @patch("subprocess.run")
     def test_get_tool_version_failure(self, mock_run):
         """Test getting tool version failure."""
-        mock_run.return_value = Mock(returncode=1)
+        mock_run.return_value = Mock(returncode=1, stdout="", stderr="")
 
         version = self.tool_manager.get_tool_version("ffmpeg")
         assert version is None
@@ -445,8 +459,7 @@ class TestToolManager:
     @patch("src.services.tool_manager.is_platform_supported")
     @patch("src.services.tool_manager.get_download_url")
     @patch.object(ToolManager, "download_file")
-    @patch.object(ToolManager, "validate_tool_functionality")
-    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "_validate_and_get_version")
     @patch.object(ToolManager, "save_tool_versions")
     @patch("shutil.copy2")
     @patch.object(ToolManager, "make_executable")
@@ -455,8 +468,7 @@ class TestToolManager:
         mock_make_exec,
         mock_copy,
         mock_save_versions,
-        mock_get_version,
-        mock_validate,
+        mock_validate_and_version,
         mock_download,
         mock_get_url,
         mock_platform_supported,
@@ -464,8 +476,7 @@ class TestToolManager:
         """Test downloading tool as direct binary."""
         mock_platform_supported.return_value = True
         mock_get_url.return_value = "http://example.com/ffmpeg"
-        mock_validate.return_value = True
-        mock_get_version.return_value = "4.4.0"
+        mock_validate_and_version.return_value = (True, "4.4.0")
 
         result = self.tool_manager.download_tool("ffmpeg")
 
@@ -473,7 +484,7 @@ class TestToolManager:
         mock_download.assert_called_once()
         mock_copy.assert_called_once()
         mock_make_exec.assert_called_once()
-        mock_validate.assert_called_once()
+        mock_validate_and_version.assert_called_once()
         mock_save_versions.assert_called_once()
 
     def test_find_binary_in_extracted_found(self):
@@ -507,14 +518,12 @@ class TestToolManager:
 
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "is_tool_available_system")
-    @patch.object(ToolManager, "validate_tool_functionality")
-    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "_validate_and_get_version")
     @patch("shutil.which")
     def test_check_tools(
         self,
         mock_which,
-        mock_get_version,
-        mock_validate,
+        mock_validate_and_version,
         mock_system_available,
         mock_local_available,
     ):
@@ -522,8 +531,7 @@ class TestToolManager:
         # Mock return values
         mock_local_available.return_value = True
         mock_system_available.return_value = True
-        mock_validate.return_value = True
-        mock_get_version.return_value = "1.0.0"
+        mock_validate_and_version.return_value = (True, "1.0.0")
         mock_which.return_value = "/usr/bin/tool"
 
         status = self.tool_manager.check_tools()
@@ -542,14 +550,12 @@ class TestToolManager:
 
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "is_tool_available_system")
-    @patch.object(ToolManager, "validate_tool_functionality")
-    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "_validate_and_get_version")
     @patch("shutil.which")
     def test_check_tools_with_iso_generation(
         self,
         mock_which,
-        mock_get_version,
-        mock_validate,
+        mock_validate_and_version,
         mock_system_available,
         mock_local_available,
     ):
@@ -560,8 +566,7 @@ class TestToolManager:
         # Mock return values
         mock_local_available.return_value = True
         mock_system_available.return_value = True
-        mock_validate.return_value = True
-        mock_get_version.return_value = "1.0.0"
+        mock_validate_and_version.return_value = (True, "1.0.0")
         mock_which.return_value = "/usr/bin/tool"
 
         status = self.tool_manager.check_tools()
@@ -703,7 +708,7 @@ class TestToolManagerSettings:
 
         with patch.object(tool_manager, "is_tool_available_system", return_value=True):
             with patch.object(
-                tool_manager, "validate_tool_functionality", return_value=True
+                tool_manager, "_validate_and_get_version", return_value=(True, "1.0.0")
             ):
                 status = tool_manager.check_tools()
 
