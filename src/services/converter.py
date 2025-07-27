@@ -275,42 +275,28 @@ class VideoConverter:
             raise ConversionError(f"Failed to analyze video: {e}")
 
     def _determine_dvd_format(self, video_info: Dict[str, Any]) -> Tuple[str, str]:
-        """Determine DVD format (NTSC/PAL) based on video properties.
+        """Determine DVD format based on settings.
 
         Args:
-            video_info: Video information from ffprobe
+            video_info: Video information from ffprobe (used for logging only)
 
         Returns:
             Tuple of (resolution, framerate)
         """
-        # Find video stream
-        video_stream = None
-        for stream in video_info.get("streams", []):
-            if stream.get("codec_type") == "video":
-                video_stream = stream
-                break
+        # Use format from settings
+        video_format = self.settings.video_format.upper()
 
-        if not video_stream:
-            logger.warning("No video stream found, defaulting to NTSC")
-            return self.NTSC_RESOLUTION, self.NTSC_FRAMERATE
-
-        # Get frame rate
-        fps_str = video_stream.get("r_frame_rate", "29.97/1")
-        try:
-            if "/" in fps_str:
-                num, den = fps_str.split("/")
-                fps = float(num) / float(den)
-            else:
-                fps = float(fps_str)
-        except (ValueError, ZeroDivisionError):
-            fps = 29.97
-
-        # Determine format based on frame rate
-        if fps <= 26:
-            logger.debug(f"Using PAL format for {fps} fps")
+        if video_format == "PAL":
+            logger.debug(
+                f"Using PAL format from settings: {self.PAL_RESOLUTION} at "
+                f"{self.PAL_FRAMERATE} fps"
+            )
             return self.PAL_RESOLUTION, self.PAL_FRAMERATE
-        else:
-            logger.debug(f"Using NTSC format for {fps} fps")
+        else:  # Default to NTSC
+            logger.debug(
+                f"Using NTSC format from settings: {self.NTSC_RESOLUTION} at "
+                f"{self.NTSC_FRAMERATE} fps"
+            )
             return self.NTSC_RESOLUTION, self.NTSC_FRAMERATE
 
     def _build_conversion_command(
@@ -354,6 +340,20 @@ class VideoConverter:
             "2",  # Stereo audio
             "-ar",
             "48000",  # 48kHz sample rate for DVD
+            "-f",
+            "dvd",  # DVD format for proper multiplexing
+            "-muxrate",
+            "10080000",  # DVD mux rate (10.08 Mbps)
+            "-maxrate",
+            "9000000",  # Maximum video bitrate for DVD
+            "-minrate",
+            "0",  # Minimum video bitrate
+            "-bufsize",
+            "1835008",  # DVD buffer size
+            "-packetsize",
+            "2048",  # DVD packet size
+            "-muxpreload",
+            "0.2",  # Preload time for multiplexer
             "-y",  # Overwrite output file
             str(output_path),
         ]

@@ -98,28 +98,28 @@ class AuthoredDVD:
         Returns:
             True if structure is valid, False otherwise
         """
-        required_files = [
-            "VIDEO_TS.IFO",
-            "VIDEO_TS.BUP",
-            "VIDEO_TS.VOB",
-            "VTS_01_0.IFO",
-            "VTS_01_0.BUP",
-        ]
+        # Check for any VTS (Video Title Set) files - these are the core content
+        vts_ifo_files = list(self.video_ts_dir.glob("VTS_*_0.IFO"))
+        if not vts_ifo_files:
+            logger.error("No VTS IFO files found")
+            return False
 
-        for filename in required_files:
-            file_path = self.video_ts_dir / filename
-            if not file_path.exists():
-                logger.error(f"Missing required DVD file: {filename}")
+        # Check for corresponding BUP files for each VTS
+        for ifo_file in vts_ifo_files:
+            bup_file = ifo_file.with_suffix(".BUP")
+            if not bup_file.exists():
+                logger.error(f"Missing corresponding BUP file: {bup_file.name}")
                 return False
 
-        # Check for VTS_01_X.VOB files (at least one should exist)
-        vob_files = list(self.video_ts_dir.glob("VTS_01_*.VOB"))
+        # Check for VTS VOB files (at least one should exist)
+        vob_files = list(self.video_ts_dir.glob("VTS_*_*.VOB"))
         if not vob_files:
             logger.error("No VTS VOB files found")
             return False
 
         logger.debug(
-            f"DVD structure validation passed: {len(vob_files)} VOB files found"
+            f"DVD structure validation passed: {len(vts_ifo_files)} VTS sets, "
+            f"{len(vob_files)} VOB files found"
         )
         return True
 
@@ -225,7 +225,18 @@ class DVDAuthor:
 
         # Create output directory structure
         video_ts_dir = output_dir / "VIDEO_TS"
+        audio_ts_dir = output_dir / "AUDIO_TS"
+
+        # Clean existing directories
+        import shutil
+
+        if video_ts_dir.exists():
+            shutil.rmtree(video_ts_dir)
+        if audio_ts_dir.exists():
+            shutil.rmtree(audio_ts_dir)
+
         video_ts_dir.mkdir(parents=True, exist_ok=True)
+        audio_ts_dir.mkdir(parents=True, exist_ok=True)
 
         try:
             # Create DVD authoring XML
@@ -341,9 +352,16 @@ class DVDAuthor:
         # Create XML structure
         dvdauthor = ET.Element("dvdauthor", dest=str(video_ts_dir))
 
+        # Determine video format for DVD
+        video_format = self.settings.video_format.lower()  # dvdauthor expects lowercase
+
         # Create vmgm (Video Manager Menu)
         vmgm = ET.SubElement(dvdauthor, "vmgm")
         menus = ET.SubElement(vmgm, "menus")
+
+        # Add video format to menus (satisfies VMGM)
+        ET.SubElement(menus, "video", format=video_format, aspect="4:3")
+
         pgc = ET.SubElement(menus, "pgc")
 
         # Add menu title
@@ -352,6 +370,10 @@ class DVDAuthor:
         # Create titleset
         titleset = ET.SubElement(dvdauthor, "titleset")
         titles = ET.SubElement(titleset, "titles")
+
+        # Add video format to titles
+        ET.SubElement(titles, "video", format=video_format, aspect="4:3")
+
         title_pgc = ET.SubElement(titles, "pgc")
 
         # Add chapters as cells
@@ -359,11 +381,9 @@ class DVDAuthor:
         for chapter in ordered_chapters:
             # Normalize filename for DVD compatibility
             normalized_path = self._normalize_video_path(chapter.video_file.file_path)
-            vob = ET.SubElement(title_pgc, "vob", file=str(normalized_path))
-
-            # Add chapter point
-            if chapter.chapter_number > 1:
-                vob.set("chapters", f"{chapter.start_time}")
+            vob = ET.SubElement(
+                title_pgc, "vob", file=str(normalized_path), chapters="0"
+            )
 
         # Write XML to temporary file
         xml_file = video_ts_dir.parent / "dvd_structure.xml"
@@ -412,7 +432,9 @@ class DVDAuthor:
         """
         logger.info("Running dvdauthor to create DVD structure")
 
-        dvdauthor_path = self.tool_manager.get_tool_path("dvdauthor")
+        import shutil
+
+        dvdauthor_path = shutil.which("dvdauthor")
         if not dvdauthor_path:
             raise DVDAuthoringError(
                 "dvdauthor not found. Please install dvdauthor:\n"
@@ -421,7 +443,9 @@ class DVDAuthor:
                 "  RHEL/CentOS: sudo yum install dvdauthor"
             )
 
-        cmd = [str(dvdauthor_path), "-x", str(xml_file)]
+        # Use the parent directory of VIDEO_TS as the output directory
+        output_dir = video_ts_dir.parent
+        cmd = [str(dvdauthor_path), "-o", str(output_dir), "-x", str(xml_file)]
 
         logger.info(f"Executing dvdauthor command: {' '.join(cmd)}")
 

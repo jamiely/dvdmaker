@@ -25,6 +25,7 @@ def mock_settings():
     settings.cache_dir = Path("/tmp/test_cache")
     settings.use_system_tools = False
     settings.download_tools = True
+    settings.video_format = "NTSC"  # Default video format
     return settings
 
 
@@ -231,28 +232,50 @@ class TestVideoConverter:
         with pytest.raises(ConversionError, match="ffprobe failed"):
             video_converter._get_video_info(sample_video_file.file_path)
 
-    def test_determine_dvd_format_ntsc(self, video_converter):
-        """Test DVD format determination for NTSC."""
+    def test_determine_dvd_format_ntsc_from_settings(self, video_converter):
+        """Test DVD format determination using NTSC from settings."""
+        # Mock settings with NTSC format
+        video_converter.settings.video_format = "NTSC"
         video_info = {"streams": [{"codec_type": "video", "r_frame_rate": "29.97/1"}]}
 
         resolution, framerate = video_converter._determine_dvd_format(video_info)
         assert resolution == VideoConverter.NTSC_RESOLUTION
         assert framerate == VideoConverter.NTSC_FRAMERATE
 
-    def test_determine_dvd_format_pal(self, video_converter):
-        """Test DVD format determination for PAL."""
+    def test_determine_dvd_format_pal_from_settings(self, video_converter):
+        """Test DVD format determination using PAL from settings."""
+        # Mock settings with PAL format
+        video_converter.settings.video_format = "PAL"
         video_info = {"streams": [{"codec_type": "video", "r_frame_rate": "25/1"}]}
 
         resolution, framerate = video_converter._determine_dvd_format(video_info)
         assert resolution == VideoConverter.PAL_RESOLUTION
         assert framerate == VideoConverter.PAL_FRAMERATE
 
-    def test_determine_dvd_format_no_video_stream(self, video_converter):
-        """Test DVD format determination with no video stream."""
+    def test_determine_dvd_format_default_ntsc(self, video_converter):
+        """Test DVD format determination defaults to NTSC for invalid format."""
+        # Mock settings with invalid format (should default to NTSC)
+        video_converter.settings.video_format = "INVALID"
         video_info = {"streams": []}
 
         resolution, framerate = video_converter._determine_dvd_format(video_info)
         assert resolution == VideoConverter.NTSC_RESOLUTION  # Default
+        assert framerate == VideoConverter.NTSC_FRAMERATE
+
+    def test_determine_dvd_format_case_insensitive(self, video_converter):
+        """Test DVD format determination is case insensitive."""
+        # Test lowercase PAL
+        video_converter.settings.video_format = "pal"
+        video_info = {"streams": []}
+
+        resolution, framerate = video_converter._determine_dvd_format(video_info)
+        assert resolution == VideoConverter.PAL_RESOLUTION
+        assert framerate == VideoConverter.PAL_FRAMERATE
+
+        # Test lowercase NTSC
+        video_converter.settings.video_format = "ntsc"
+        resolution, framerate = video_converter._determine_dvd_format(video_info)
+        assert resolution == VideoConverter.NTSC_RESOLUTION
         assert framerate == VideoConverter.NTSC_FRAMERATE
 
     def test_build_conversion_command(self, video_converter, tmp_path):

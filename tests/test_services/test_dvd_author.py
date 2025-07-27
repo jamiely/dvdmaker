@@ -34,6 +34,7 @@ def settings(tmp_path):
         log_file_backup_count=5,
         download_rate_limit="1M",
         video_quality="best",
+        video_format="NTSC",  # Default video format for tests
     )
 
 
@@ -368,7 +369,7 @@ class TestDVDAuthor:
         # Check subprocess was called correctly
         mock_subprocess.assert_called_once()
         call_args = mock_subprocess.call_args
-        assert "/usr/bin/dvdauthor" in call_args[0][0][0]
+        assert "dvdauthor" in call_args[0][0][0]  # Check dvdauthor command is used
         assert "-x" in call_args[0][0]
         assert str(xml_file) in call_args[0][0]
 
@@ -391,15 +392,14 @@ class TestDVDAuthor:
         with pytest.raises(DVDAuthoringError, match="dvdauthor execution failed"):
             dvd_author._run_dvdauthor(xml_file, video_ts_dir)
 
-    def test_run_dvdauthor_tool_not_found(
-        self, dvd_author, tmp_path, mock_tool_manager
-    ):
+    @patch("shutil.which")
+    def test_run_dvdauthor_tool_not_found(self, mock_which, dvd_author, tmp_path):
         """Test dvdauthor when tool is not found."""
         xml_file = tmp_path / "test.xml"
         video_ts_dir = tmp_path / "VIDEO_TS"
 
-        # Mock tool manager to return None (tool not found)
-        mock_tool_manager.get_tool_path.return_value = None
+        # Mock shutil.which to return None (tool not found)
+        mock_which.return_value = None
 
         with pytest.raises(DVDAuthoringError, match="dvdauthor not found"):
             dvd_author._run_dvdauthor(xml_file, video_ts_dir)
@@ -594,6 +594,60 @@ class TestDVDAuthor:
         assert "<vmgm>" in xml_content
         assert "<titleset>" in xml_content
         assert str(video_ts_dir) in xml_content
+        # Check for video format specification (NTSC is default in settings)
+        assert 'videoformat="NTSC"' in xml_content
+
+    def test_create_dvd_xml_with_pal_format(
+        self, dvd_author, sample_converted_videos, tmp_path
+    ):
+        """Test DVD XML creation with PAL format."""
+        # Change settings to PAL
+        dvd_author.settings.video_format = "PAL"
+
+        # Create DVD structure
+        chapters = dvd_author._create_chapters(sample_converted_videos)
+        dvd_structure = DVDStructure(
+            chapters=chapters,
+            menu_title="Test PAL DVD",
+            total_size=1000,
+        )
+
+        video_ts_dir = tmp_path / "VIDEO_TS"
+        video_ts_dir.mkdir(parents=True)
+
+        xml_file = dvd_author._create_dvd_xml(dvd_structure, video_ts_dir)
+
+        # Read and verify XML content includes PAL format
+        xml_content = xml_file.read_text()
+        assert "<dvdauthor" in xml_content
+        assert "<vmgm>" in xml_content
+        assert (
+            'videoformat="PAL"' in xml_content
+        )  # Should be uppercase for videoformat attribute
+
+    def test_create_dvd_xml_case_insensitive_format(
+        self, dvd_author, sample_converted_videos, tmp_path
+    ):
+        """Test DVD XML creation handles case insensitive format."""
+        # Test lowercase input
+        dvd_author.settings.video_format = "ntsc"
+
+        # Create DVD structure
+        chapters = dvd_author._create_chapters(sample_converted_videos)
+        dvd_structure = DVDStructure(
+            chapters=chapters,
+            menu_title="Test DVD",
+            total_size=1000,
+        )
+
+        video_ts_dir = tmp_path / "VIDEO_TS"
+        video_ts_dir.mkdir(parents=True)
+
+        xml_file = dvd_author._create_dvd_xml(dvd_structure, video_ts_dir)
+
+        # Should still output uppercase for videoformat attribute
+        xml_content = xml_file.read_text()
+        assert 'videoformat="NTSC"' in xml_content
 
     @patch("src.services.dvd_author.DVDAuthor._run_dvdauthor")
     @patch("src.services.dvd_author.DVDAuthor._create_dvd_xml")

@@ -591,11 +591,9 @@ class ToolManager:
                     status["version"] = self.get_tool_version(tool_name, tool_path)
                     status["path"] = str(tool_path)
 
-            # Check system availability
+            # Check system availability only if local tool not functional
             status["available_system"] = self.is_tool_available_system(tool_name)
-            if status["available_system"] and (
-                not status["functional"] or tool_name == "dvdauthor"
-            ):
+            if status["available_system"] and not status["functional"]:
                 status["functional"] = self.validate_tool_functionality(tool_name)
                 status["version"] = self.get_tool_version(tool_name)
                 status["path"] = shutil.which(

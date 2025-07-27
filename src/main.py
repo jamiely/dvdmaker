@@ -71,6 +71,13 @@ Examples:
         help="Custom DVD menu title (default: playlist title)",
     )
     parser.add_argument(
+        "--video-format",
+        choices=["NTSC", "PAL"],
+        default="NTSC",
+        help="DVD video format: NTSC (29.97fps, 720x480) or PAL (25fps, 720x576) "
+        "(default: NTSC)",
+    )
+    parser.add_argument(
         "--iso",
         action="store_true",
         help="Generate ISO image after creating DVD structure",
@@ -179,6 +186,8 @@ def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Se
     # DVD settings
     if args.menu_title:
         updates["menu_title"] = args.menu_title
+    if args.video_format:
+        updates["video_format"] = args.video_format
     if args.iso:
         updates["generate_iso"] = True
 

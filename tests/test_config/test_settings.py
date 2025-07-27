@@ -37,6 +37,7 @@ class TestSettings:
         assert settings.force_convert is False
         assert settings.verbose is False
         assert settings.quiet is False
+        assert settings.video_format == "NTSC"
 
     def test_custom_settings(self):
         """Test creating settings with custom values."""
@@ -93,6 +94,27 @@ class TestSettings:
         # Negative values should raise error
         with pytest.raises(ValidationError):
             Settings(log_file_backup_count=-1)
+
+    def test_video_format_validation(self):
+        """Test video format validation."""
+        # Valid video formats should work
+        for format_type in ["NTSC", "PAL"]:
+            settings = Settings(video_format=format_type)
+            assert settings.video_format == format_type
+
+        # Case insensitive
+        settings = Settings(video_format="ntsc")
+        assert settings.video_format == "NTSC"
+
+        settings = Settings(video_format="pal")
+        assert settings.video_format == "PAL"
+
+        # Invalid video format should raise error
+        with pytest.raises(ValidationError):
+            Settings(video_format="INVALID")
+
+        with pytest.raises(ValidationError):
+            Settings(video_format="SECAM")
 
     def test_quiet_verbose_conflict(self):
         """Test that quiet and verbose cannot both be True."""

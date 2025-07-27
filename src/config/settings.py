@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # DVD settings
     menu_title: Optional[str] = Field(default=None)
     generate_iso: bool = Field(default=False)
+    video_format: str = Field(default="NTSC")
 
     # Cache settings
     force_download: bool = Field(default=False)
@@ -91,6 +92,15 @@ class Settings(BaseSettings):
             # For now, allow any string - yt-dlp will validate
             pass
         return v
+
+    @field_validator("video_format")
+    @classmethod
+    def validate_video_format(cls, v: str) -> str:
+        """Validate video format is PAL or NTSC."""
+        valid_formats = ["PAL", "NTSC"]
+        if v.upper() not in valid_formats:
+            raise ValueError(f"Video format must be one of: {', '.join(valid_formats)}")
+        return v.upper()
 
     @field_validator("cache_dir", "output_dir", "temp_dir", "bin_dir", "log_dir")
     @classmethod

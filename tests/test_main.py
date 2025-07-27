@@ -66,6 +66,8 @@ class TestArgumentParser:
                 "720p",
                 "--menu-title",
                 "My DVD",
+                "--video-format",
+                "PAL",
                 "--iso",
                 "--force-download",
                 "--force-convert",
@@ -86,6 +88,7 @@ class TestArgumentParser:
         assert args.temp_dir == Path("/tmp/temp")
         assert args.quality == "720p"
         assert args.menu_title == "My DVD"
+        assert args.video_format == "PAL"
         assert args.iso
         assert args.force_download
         assert args.force_convert
@@ -116,6 +119,30 @@ class TestArgumentParser:
 
         assert args.quiet
         assert args.verbose
+
+    def test_video_format_argument_parsing(self):
+        """Test video format argument parsing."""
+        parser = create_argument_parser()
+
+        # Test NTSC format
+        args = parser.parse_args(["--playlist-url", "PLxxx", "--video-format", "NTSC"])
+        assert args.video_format == "NTSC"
+
+        # Test PAL format
+        args = parser.parse_args(["--playlist-url", "PLxxx", "--video-format", "PAL"])
+        assert args.video_format == "PAL"
+
+        # Test default value
+        args = parser.parse_args(["--playlist-url", "PLxxx"])
+        assert args.video_format == "NTSC"  # Default should be NTSC
+
+    def test_video_format_invalid_choice(self):
+        """Test that invalid video format choices are rejected."""
+        parser = create_argument_parser()
+
+        # Invalid format should cause SystemExit
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--playlist-url", "PLxxx", "--video-format", "SECAM"])
 
 
 class TestArgumentValidation:
@@ -225,6 +252,7 @@ class TestSettingsMerge:
             temp_dir=None,
             quality=None,
             menu_title=None,
+            video_format=None,
             iso=False,
             force_download=False,
             force_convert=False,
@@ -251,6 +279,7 @@ class TestSettingsMerge:
             temp_dir=Path("/custom/temp"),
             quality="720p",
             menu_title="Custom Title",
+            video_format="PAL",
             iso=True,
             force_download=True,
             force_convert=True,
@@ -268,6 +297,7 @@ class TestSettingsMerge:
         assert merged.temp_dir == Path("/custom/temp")
         assert merged.video_quality == "720p"
         assert merged.menu_title == "Custom Title"
+        assert merged.video_format == "PAL"
         assert merged.generate_iso is True
         assert merged.force_download is True
         assert merged.force_convert is True
@@ -287,6 +317,7 @@ class TestSettingsMerge:
             temp_dir=None,
             quality=None,
             menu_title=None,
+            video_format=None,
             iso=False,
             force_download=False,
             force_convert=False,
@@ -300,6 +331,36 @@ class TestSettingsMerge:
         merged = merge_settings_with_args(args, settings)
         assert merged.use_system_tools is True
         assert merged.download_tools is False
+
+    def test_merge_settings_video_format(self):
+        """Test merging with video format argument."""
+        settings = Settings()  # Default video_format is NTSC
+
+        # Test with PAL override
+        args = argparse.Namespace(
+            output_dir=None,
+            cache_dir=None,
+            temp_dir=None,
+            quality=None,
+            menu_title=None,
+            video_format="PAL",
+            iso=False,
+            force_download=False,
+            force_convert=False,
+            use_system_tools=False,
+            download_tools=False,
+            log_level=None,
+            verbose=False,
+            quiet=False,
+        )
+
+        merged = merge_settings_with_args(args, settings)
+        assert merged.video_format == "PAL"
+
+        # Test with no override (should remain default)
+        args.video_format = None
+        merged = merge_settings_with_args(args, settings)
+        assert merged.video_format == "NTSC"  # Should keep original default
 
 
 class TestToolValidation:
