@@ -185,11 +185,11 @@ class TestVideoDownloader:
         args = downloader._get_base_yt_dlp_args()
 
         assert "--no-warnings" in args
-        assert "--extract-flat" in args
-        assert "--dump-json" in args
         assert "--limit-rate" in args
         assert "1M" in args
         assert "--cache-dir" in args
+        # --extract-flat and --dump-json are not in base args anymore
+        # as they are added only when needed
 
     def test_extract_playlist_id_standard_format(self, downloader):
         """Test extracting playlist ID from standard URL format."""

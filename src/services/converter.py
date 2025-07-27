@@ -252,7 +252,7 @@ class VideoConverter:
             logger.info(f"Executing ffprobe command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             logger.info(f"ffprobe completed with return code {result.returncode}")
-            
+
             if result.stderr:
                 if result.returncode == 0:
                     logger.debug(f"ffprobe stderr: {result.stderr.strip()}")

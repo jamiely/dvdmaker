@@ -161,7 +161,7 @@ class TestToolManager:
 
         assert self.tool_manager.validate_tool_functionality("yt-dlp") is True
         mock_run.assert_called_once_with(
-            ["yt-dlp", "--version"], capture_output=True, text=True, timeout=10
+            ["yt-dlp", "--version"], capture_output=True, text=True, timeout=30
         )
 
     @patch("subprocess.run")
@@ -230,11 +230,13 @@ class TestToolManager:
     def test_get_tool_version_dvdauthor(self, mock_run):
         """Test getting dvdauthor version."""
         mock_run.return_value = Mock(
-            returncode=0, stdout="DVDAuthor 0.7.2, Build 20180905"
+            returncode=0,
+            stdout="DVDAuthor 0.7.2, Build 20180905",
+            stderr="DVDAuthor::dvdauthor, version 0.7.2.",
         )
 
         version = self.tool_manager.get_tool_version("dvdauthor")
-        assert version == "system"
+        assert version == "0.7.2"
 
     @patch("subprocess.run")
     def test_get_tool_version_failure(self, mock_run):
@@ -491,11 +493,20 @@ class TestToolManager:
         self, mock_instructions, mock_download, mock_check
     ):
         """Test ensuring tools when download is needed."""
-        mock_check.return_value = {
-            "ffmpeg": {"functional": False},
-            "yt-dlp": {"functional": True},
-            "dvdauthor": {"functional": True},
-        }
+        # First call returns non-functional, second call (after download)
+        # returns functional
+        mock_check.side_effect = [
+            {
+                "ffmpeg": {"functional": False},
+                "yt-dlp": {"functional": True},
+                "dvdauthor": {"functional": True},
+            },
+            {
+                "ffmpeg": {"functional": True},
+                "yt-dlp": {"functional": True},
+                "dvdauthor": {"functional": True},
+            },
+        ]
         mock_download.return_value = True
 
         success, missing = self.tool_manager.ensure_tools_available()
@@ -577,7 +588,12 @@ class TestToolManagerSettings:
 
         with patch.object(tool_manager, "check_tools") as mock_check:
             mock_check.return_value = {
-                "ffmpeg": {"functional": False},
+                "ffmpeg": {
+                    "functional": False,
+                    "available_locally": False,
+                    "available_system": False,
+                    "path": None,
+                },
                 "yt-dlp": {"functional": True},
                 "dvdauthor": {"functional": True},
             }

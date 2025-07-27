@@ -114,10 +114,10 @@ class VideoDownloader:
 
             # Log command completion and output
             logger.info(f"yt-dlp completed with return code {result.returncode}")
-            
+
             if result.stdout:
                 logger.debug(f"yt-dlp stdout: {result.stdout.strip()}")
-            
+
             if result.stderr:
                 if result.returncode == 0:
                     logger.debug(f"yt-dlp stderr: {result.stderr.strip()}")
@@ -152,17 +152,13 @@ class VideoDownloader:
         """
         args = [
             "--no-warnings",  # Reduce noise in output
-            "--no-playlist" if not hasattr(self, "_playlist_mode") else "",
-            "--extract-flat",  # For playlist extraction
-            "--dump-json",  # Output JSON metadata
             "--limit-rate",
             self.settings.download_rate_limit,
             "--cache-dir",
             str(self.settings.cache_dir / "yt-dlp-cache"),
         ]
 
-        # Remove empty strings
-        return [arg for arg in args if arg]
+        return args
 
     def extract_playlist_metadata(
         self, playlist_url: str, progress_callback: Optional[ProgressCallback] = None

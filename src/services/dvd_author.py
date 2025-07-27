@@ -15,7 +15,7 @@ from typing import Callable, List, Optional, Tuple
 
 from ..config.settings import Settings
 from ..models.dvd import DVDChapter, DVDStructure
-from ..models.video import VideoFile
+from ..models.video import VideoFile, VideoMetadata
 from ..services.cache_manager import CacheManager
 from ..services.converter import ConvertedVideoFile
 from ..services.tool_manager import ToolManager
@@ -286,9 +286,19 @@ class DVDAuthor:
         current_time = 0
 
         for i, video in enumerate(converted_videos, 1):
+            # Create updated metadata with actual converted video duration
+            updated_metadata = VideoMetadata(
+                video_id=video.metadata.video_id,
+                title=video.metadata.title,
+                duration=video.duration,  # Use converted video duration
+                url=video.metadata.url,
+                thumbnail_url=video.metadata.thumbnail_url,
+                description=video.metadata.description,
+            )
+
             # Create VideoFile from ConvertedVideoFile
             video_file = VideoFile(
-                metadata=video.metadata,
+                metadata=updated_metadata,
                 file_path=video.video_file,
                 file_size=video.file_size,
                 checksum=video.checksum,
@@ -302,11 +312,13 @@ class DVDAuthor:
             )
 
             chapters.append(chapter)
-            current_time += video.duration
+            current_time += (
+                chapter.duration
+            )  # Use chapter.duration instead of video.duration
 
             logger.debug(
                 f"Created chapter {i}: {video.metadata.title} "
-                f"({video.duration}s, starts at {chapter.start_time}s)"
+                f"({chapter.duration}s, starts at {chapter.start_time}s)"
             )
 
         logger.info(

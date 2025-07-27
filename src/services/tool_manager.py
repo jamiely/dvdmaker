@@ -73,6 +73,9 @@ class ToolManager:
         self.bin_dir = settings.bin_dir
         self.tool_versions_file = self.bin_dir / "tool_versions.json"
 
+        # Cache for tool status to avoid repeated expensive validation calls
+        self._tools_status_cache: Optional[Dict[str, Dict[str, Any]]] = None
+
         # Ensure bin directory exists
         self.bin_dir.mkdir(parents=True, exist_ok=True)
 
@@ -87,20 +90,20 @@ class ToolManager:
         **kwargs: Any,
     ) -> subprocess.CompletedProcess[str]:
         """Run subprocess with comprehensive logging.
-        
+
         Args:
             cmd: Command to execute
             timeout: Optional timeout in seconds
             capture_output: Whether to capture output
             text: Whether to return text output
             **kwargs: Additional arguments for subprocess.run
-            
+
         Returns:
             CompletedProcess result
         """
         cmd_str = " ".join(str(arg) for arg in cmd)
         logger.info(f"Executing command: {cmd_str}")
-        
+
         try:
             result = subprocess.run(
                 cmd,
@@ -109,22 +112,24 @@ class ToolManager:
                 timeout=timeout,
                 **kwargs,
             )
-            
+
             # Log command completion and output
-            logger.info(f"Command completed with return code {result.returncode}: {cmd_str}")
-            
+            logger.info(
+                f"Command completed with return code {result.returncode}: {cmd_str}"
+            )
+
             if capture_output and result.stdout:
                 logger.debug(f"Command stdout: {result.stdout.strip()}")
-            
+
             if capture_output and result.stderr:
                 if result.returncode == 0:
                     logger.debug(f"Command stderr: {result.stderr.strip()}")
                 else:
                     logger.warning(f"Command stderr: {result.stderr.strip()}")
-            
+
             return result
-            
-        except subprocess.TimeoutExpired as e:
+
+        except subprocess.TimeoutExpired:
             logger.error(f"Command timed out after {timeout}s: {cmd_str}")
             raise
         except subprocess.CalledProcessError as e:
@@ -253,8 +258,13 @@ class ToolManager:
             timeout = 30 if tool_name == "yt-dlp" else 10
             result = self._run_logged_subprocess(cmd, timeout=timeout)
 
-            # dvdauthor --help returns exit code 1 but is still functional if it produces output
-            if tool_name == "dvdauthor" and result.returncode == 1 and (result.stdout or result.stderr):
+            # dvdauthor --help returns exit code 1 but is still functional
+            # if it produces output
+            if (
+                tool_name == "dvdauthor"
+                and result.returncode == 1
+                and (result.stdout or result.stderr)
+            ):
                 functional = True
             else:
                 functional = result.returncode == 0
@@ -326,7 +336,8 @@ class ToolManager:
                 output_to_check = result.stderr if result.stderr else output
                 for line in output_to_check.split("\n"):
                     if "dvdauthor" in line.lower() and "version" in line.lower():
-                        # Extract version from line like "DVDAuthor::dvdauthor, version 0.7.2."
+                        # Extract version from line like
+                        # "DVDAuthor::dvdauthor, version 0.7.2."
                         parts = line.split("version")
                         if len(parts) > 1:
                             version = parts[1].strip().rstrip(".").split()[0]
@@ -504,6 +515,8 @@ class ToolManager:
             self.save_tool_versions(versions)
 
             logger.info(f"Successfully downloaded and installed {tool_name}")
+            # Invalidate cache since tool status has changed
+            self._invalidate_cache()
             return True
 
     def _find_binary_in_extracted(
@@ -538,12 +551,20 @@ class ToolManager:
         logger.warning(f"Could not find {tool_name} binary in extracted files")
         return None
 
-    def check_tools(self) -> Dict[str, Dict[str, Any]]:
+    def check_tools(self, use_cache: bool = True) -> Dict[str, Dict[str, Any]]:
         """Check the status of all required tools.
+
+        Args:
+            use_cache: Whether to use cached status if available
 
         Returns:
             Dictionary with tool status information
         """
+        # Return cached status if available and requested
+        if use_cache and self._tools_status_cache is not None:
+            logger.debug("Using cached tool status")
+            return self._tools_status_cache
+
         logger.info("Checking tool availability and status")
 
         tools_status = {}
@@ -584,7 +605,14 @@ class ToolManager:
             tools_status[tool_name] = status
             logger.debug(f"Status for {tool_name}: {status}")
 
+        # Cache the results for future use
+        self._tools_status_cache = tools_status
         return tools_status
+
+    def _invalidate_cache(self) -> None:
+        """Invalidate the tools status cache."""
+        logger.debug("Invalidating tools status cache")
+        self._tools_status_cache = None
 
     def ensure_tools_available(self) -> Tuple[bool, List[str]]:
         """Ensure all required tools are available.
@@ -594,12 +622,12 @@ class ToolManager:
         """
         logger.info("Ensuring all required tools are available")
 
-        tools_status = self.check_tools()
+        tools_status = self.check_tools(use_cache=False)  # Force fresh check
         missing_tools: List[str] = []
 
         for tool_name, status in tools_status.items():
             logger.debug(f"Processing tool {tool_name} with status: {status}")
-            
+
             if not status["functional"]:
                 if tool_name == "dvdauthor":
                     # dvdauthor must be installed by user
@@ -612,11 +640,18 @@ class ToolManager:
                         logger.info(f"Attempting to download {tool_name}")
                         self.download_tool(tool_name)
                         logger.info(f"Successfully downloaded {tool_name}")
-                        # Re-verify after download
-                        post_download_status = self.check_tools().get(tool_name, {})
+                        # Re-verify after download - force fresh check
+                        post_download_status = self.check_tools(use_cache=False).get(
+                            tool_name, {}
+                        )
                         if not post_download_status.get("functional", False):
-                            missing_tools.append(f"{tool_name}: Downloaded but not functional")
-                            logger.error(f"{tool_name} downloaded but validation failed: {post_download_status}")
+                            missing_tools.append(
+                                f"{tool_name}: Downloaded but not functional"
+                            )
+                            logger.error(
+                                f"{tool_name} downloaded but validation failed: "
+                                f"{post_download_status}"
+                            )
                     except ToolDownloadError as e:
                         missing_tools.append(f"{tool_name}: Download failed - {e}")
                         logger.error(f"Failed to download {tool_name}: {e}")
