@@ -145,6 +145,9 @@
 - [x] Implement dvdauthor validation
   - [x] Check system PATH for dvdauthor
   - [x] Provide installation instructions if missing
+- [ ] Implement mkisofs validation
+  - [ ] Check system PATH for mkisofs/genisoimage
+  - [ ] Provide installation instructions if missing (macOS: `brew install cdrtools`, Linux: `sudo apt install genisoimage`)
 - [x] Add comprehensive error handling and user messaging
 
 ### 6.2 Tool Manager Tests
@@ -235,7 +238,7 @@
   - [x] Apply ASCII filename normalization
   - [x] Warn users when playlist exceeds DVD capacity (4.7GB)
   - [x] Create DVDs with successfully processed videos only
-- [x] Implement ISO generation (optional)
+- [x] Implement ISO generation using mkisofs command `mkisofs -dvd-video -o mydisc.iso dvd`
 - [x] Add validation of final DVD structure
 
 ### 10.2 DVD Author Tests
@@ -266,31 +269,53 @@
 - [x] Test error handling and user messaging
 - [x] Test tool validation flow
 
-## Phase 12: Integration Testing
+## Phase 12: ISO Creation Enhancement
 
-### 12.1 End-to-End Tests
+### 12.1 Update Tool Manager for mkisofs
+- [x] Add mkisofs/genisoimage tool validation to ToolManager
+- [x] Implement system PATH checking for mkisofs
+- [x] Add installation instructions for mkisofs
+  - [x] macOS: `brew install dvdrtools` (includes mkisofs)
+  - [x] Linux: `sudo apt install genisoimage` (Ubuntu/Debian) or `sudo yum install genisoimage` (RHEL/CentOS)
+- [x] Update tool validation process to include mkisofs
+
+### 12.2 Update DVD Author Service
+- [x] Modify `_create_iso` method to use mkisofs and genisoimage (fallback support)
+- [x] Implement mkisofs command: `mkisofs -dvd-video -o output.iso input_directory`
+- [x] Update error handling for mkisofs-specific errors
+- [x] Test ISO creation with mkisofs command
+- [x] Enable ISO creation by default (change default generate_iso setting)
+
+### 12.3 Update Tests
+- [x] Add mkisofs validation tests to tool manager tests
+- [x] Update DVD author ISO creation tests for mkisofs
+- [x] Test error scenarios when mkisofs is not available
+
+## Phase 13: Integration Testing
+
+### 13.1 End-to-End Tests
 - [ ] Create integration test with small test playlist
 - [ ] Test complete workflow with mocked external tools
 - [ ] Test error recovery scenarios
 - [ ] Test caching behavior across multiple runs
 - [ ] Performance testing with larger playlists
 
-### 12.2 Documentation
+### 13.2 Documentation
 - [ ] Update README.md with installation and usage instructions
 - [ ] Create examples and troubleshooting guide
 - [ ] Document configuration options
 - [ ] Create development setup guide
 
-## Phase 13: Quality Assurance
+## Phase 14: Quality Assurance
 
-### 13.1 Code Quality
+### 14.1 Code Quality
 - [ ] Achieve >90% test coverage
 - [ ] Pass all linting checks (flake8, mypy)
 - [ ] Format all code with Black and isort
 - [ ] Review and refactor for SOLID principles
 - [ ] Add comprehensive docstrings
 
-### 13.2 Final Testing
+### 14.2 Final Testing
 - [ ] Test on Linux and macOS platforms
 - [ ] Test with various playlist sizes
 - [ ] Test error scenarios and recovery
@@ -307,9 +332,10 @@
 - **Phase 9**: 2-3 days (Video processing)
 - **Phase 10**: 2-3 days (DVD authoring)
 - **Phase 11**: 1-2 days (CLI interface)
-- **Phase 12-13**: 2-3 days (Testing and QA)
+- **Phase 12**: 1 day (ISO creation enhancement)
+- **Phase 13-14**: 2-3 days (Testing and QA)
 
-**Total Estimated Time**: 16-24 days
+**Total Estimated Time**: 17-25 days
 
 ## Dependencies Between Phases
 - Phase 2 depends on Phase 1
@@ -319,4 +345,5 @@
 - Phase 7 depends on Phase 2
 - Phases 8-10 depend on Phases 6-7
 - Phase 11 depends on Phases 8-10
-- Phases 12-13 depend on all previous phases
+- Phase 12 depends on Phases 6 and 10 (tool management and DVD authoring)
+- Phases 13-14 depend on all previous phases

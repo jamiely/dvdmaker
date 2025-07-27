@@ -32,7 +32,7 @@ class TestSettings:
         assert settings.use_system_tools is False
         assert settings.download_tools is True
         assert settings.menu_title is None
-        assert settings.generate_iso is False
+        assert settings.generate_iso is True
         assert settings.force_download is False
         assert settings.force_convert is False
         assert settings.verbose is False

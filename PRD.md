@@ -58,6 +58,7 @@ A Python command-line tool that converts YouTube playlists into physical DVDs by
 - `yt-dlp` for YouTube downloads (auto-downloadable)
 - `ffmpeg` for video/audio processing (auto-downloadable)
 - `dvdauthor` for DVD creation (system installation required)
+- `mkisofs` for ISO image creation (system installation required)
 
 ### Python Packages
 - **Runtime**: `unidecode`, `requests`, `pydantic`
@@ -97,11 +98,23 @@ A Python command-line tool that converts YouTube playlists into physical DVDs by
 python dvdmaker.py --playlist-url URL [options]
 ```
 
+Examples:
+```bash
+# Basic usage (creates both DVD structure and ISO)
+python dvdmaker.py --playlist-url "https://www.youtube.com/playlist?list=PLxxx"
+
+# Create only DVD structure without ISO
+python dvdmaker.py --playlist-url "PLxxx" --no-iso
+
+# Custom output and menu title
+python dvdmaker.py --playlist-url "PLxxx" --output-dir ./my-dvd --menu-title "My Collection"
+```
+
 ### Options
 - `--output-dir`: Specify output directory
 - `--quality`: Video quality preference
 - `--menu-title`: Custom DVD menu title
-- `--iso`: Generate ISO image
+- `--no-iso`: Skip ISO image generation (enabled by default)
 - `--temp-dir`: Temporary files location
 - `--cache-dir`: Cache directory for downloaded/processed files
 - `--force-download`: Force re-download even if cached
@@ -233,9 +246,9 @@ dvdmaker/
 ### Tool Validation Process
 1. Check for tools in local `bin/` directory first
 2. If missing, inform user and automatically download
-3. For `dvdauthor`, check system PATH and provide installation instructions if missing:
-   - macOS: "Install using: `brew install dvdauthor`"
-   - Linux: "Install using: `sudo apt install dvdauthor` (Ubuntu/Debian) or `sudo yum install dvdauthor` (RHEL/CentOS)"
+3. For `dvdauthor` and `mkisofs`, check system PATH and provide installation instructions if missing:
+   - macOS: "Install using: `brew install dvdauthor` and `brew install cdrtools`"
+   - Linux: "Install using: `sudo apt install dvdauthor genisoimage` (Ubuntu/Debian) or `sudo yum install dvdauthor genisoimage` (RHEL/CentOS)"
 4. Display clear status messages: "Checking tools...", "Downloading ffmpeg...", "Tools ready!"
 5. Fail gracefully if required tools cannot be obtained
 

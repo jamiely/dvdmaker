@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     # DVD settings
     menu_title: Optional[str] = Field(default=None)
-    generate_iso: bool = Field(default=False)
+    generate_iso: bool = Field(default=True)
     video_format: str = Field(default="NTSC")
 
     # Cache settings

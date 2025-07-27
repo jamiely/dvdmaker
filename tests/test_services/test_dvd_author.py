@@ -430,9 +430,9 @@ class TestDVDAuthor:
 
         mock_subprocess.side_effect = subprocess_side_effect
 
-        iso_file = dvd_author._create_iso(tmp_path, video_ts_dir)
+        iso_file = dvd_author._create_iso(tmp_path, video_ts_dir, "Test DVD")
 
-        assert iso_file == tmp_path / "dvd.iso"
+        assert iso_file == tmp_path / "Test_DVD.iso"
         assert mock_subprocess.call_count == 2  # Version check + ISO creation
 
     @patch("subprocess.run")
@@ -445,7 +445,7 @@ class TestDVDAuthor:
         mock_subprocess.side_effect = FileNotFoundError()
 
         with pytest.raises(DVDAuthoringError, match="No ISO creation tool found"):
-            dvd_author._create_iso(tmp_path, video_ts_dir)
+            dvd_author._create_iso(tmp_path, video_ts_dir, "Test DVD")
 
     @patch("src.services.dvd_author.DVDAuthor._run_dvdauthor")
     @patch("src.services.dvd_author.DVDAuthor._create_dvd_xml")
@@ -462,22 +462,22 @@ class TestDVDAuthor:
         xml_file = tmp_path / "test.xml"
         mock_create_xml.return_value = xml_file
 
-        # Mock dvdauthor run
-        mock_run_dvdauthor.return_value = 25.5
+        # Mock dvdauthor run and create required files
+        def mock_dvdauthor_side_effect(xml_file, video_ts_dir):
+            # Create required DVD files for validation after dvdauthor "runs"
+            required_files = [
+                "VIDEO_TS.IFO",
+                "VIDEO_TS.BUP",
+                "VIDEO_TS.VOB",
+                "VTS_01_0.IFO",
+                "VTS_01_0.BUP",
+                "VTS_01_1.VOB",
+            ]
+            for filename in required_files:
+                (video_ts_dir / filename).touch()
+            return 25.5
 
-        # Create required DVD files for validation
-        video_ts_dir = tmp_path / "output" / "VIDEO_TS"
-        video_ts_dir.mkdir(parents=True)
-        required_files = [
-            "VIDEO_TS.IFO",
-            "VIDEO_TS.BUP",
-            "VIDEO_TS.VOB",
-            "VTS_01_0.IFO",
-            "VTS_01_0.BUP",
-            "VTS_01_1.VOB",
-        ]
-        for filename in required_files:
-            (video_ts_dir / filename).touch()
+        mock_run_dvdauthor.side_effect = mock_dvdauthor_side_effect
 
         authored_dvd = dvd_author.create_dvd_structure(
             converted_videos=sample_converted_videos,
@@ -538,21 +538,22 @@ class TestDVDAuthor:
         # Mock XML creation and dvdauthor run
         xml_file = tmp_path / "test.xml"
         mock_create_xml.return_value = xml_file
-        mock_run_dvdauthor.return_value = 30.0
 
-        # Create required DVD files for validation
-        video_ts_dir = tmp_path / "output" / "VIDEO_TS"
-        video_ts_dir.mkdir(parents=True)
-        required_files = [
-            "VIDEO_TS.IFO",
-            "VIDEO_TS.BUP",
-            "VIDEO_TS.VOB",
-            "VTS_01_0.IFO",
-            "VTS_01_0.BUP",
-            "VTS_01_1.VOB",
-        ]
-        for filename in required_files:
-            (video_ts_dir / filename).touch()
+        def mock_dvdauthor_side_effect(xml_file, video_ts_dir):
+            # Create required DVD files for validation after dvdauthor "runs"
+            required_files = [
+                "VIDEO_TS.IFO",
+                "VIDEO_TS.BUP",
+                "VIDEO_TS.VOB",
+                "VTS_01_0.IFO",
+                "VTS_01_0.BUP",
+                "VTS_01_1.VOB",
+            ]
+            for filename in required_files:
+                (video_ts_dir / filename).touch()
+            return 30.0
+
+        mock_run_dvdauthor.side_effect = mock_dvdauthor_side_effect
 
         # Should succeed but log capacity warning
         authored_dvd = dvd_author.create_dvd_structure(
@@ -595,7 +596,9 @@ class TestDVDAuthor:
         assert "<titleset>" in xml_content
         assert str(video_ts_dir) in xml_content
         # Check for video format specification (NTSC is default in settings)
-        assert 'videoformat="NTSC"' in xml_content
+        assert 'format="ntsc"' in xml_content
+        # Check for 16:9 aspect ratio (default)
+        assert 'aspect="16:9"' in xml_content
 
     def test_create_dvd_xml_with_pal_format(
         self, dvd_author, sample_converted_videos, tmp_path
@@ -621,9 +624,9 @@ class TestDVDAuthor:
         xml_content = xml_file.read_text()
         assert "<dvdauthor" in xml_content
         assert "<vmgm>" in xml_content
-        assert (
-            'videoformat="PAL"' in xml_content
-        )  # Should be uppercase for videoformat attribute
+        assert 'format="pal"' in xml_content  # Should be lowercase for format attribute
+        # Check for 16:9 aspect ratio (default)
+        assert 'aspect="16:9"' in xml_content
 
     def test_create_dvd_xml_case_insensitive_format(
         self, dvd_author, sample_converted_videos, tmp_path
@@ -645,9 +648,11 @@ class TestDVDAuthor:
 
         xml_file = dvd_author._create_dvd_xml(dvd_structure, video_ts_dir)
 
-        # Should still output uppercase for videoformat attribute
+        # Should still output lowercase for format attribute
         xml_content = xml_file.read_text()
-        assert 'videoformat="NTSC"' in xml_content
+        assert 'format="ntsc"' in xml_content
+        # Check for 16:9 aspect ratio (default)
+        assert 'aspect="16:9"' in xml_content
 
     @patch("src.services.dvd_author.DVDAuthor._run_dvdauthor")
     @patch("src.services.dvd_author.DVDAuthor._create_dvd_xml")
@@ -666,22 +671,23 @@ class TestDVDAuthor:
         xml_file = tmp_path / "test.xml"
         iso_file = tmp_path / "output" / "dvd.iso"
         mock_create_xml.return_value = xml_file
-        mock_run_dvdauthor.return_value = 25.5
         mock_create_iso.return_value = iso_file
 
-        # Create required DVD files for validation
-        video_ts_dir = tmp_path / "output" / "VIDEO_TS"
-        video_ts_dir.mkdir(parents=True)
-        required_files = [
-            "VIDEO_TS.IFO",
-            "VIDEO_TS.BUP",
-            "VIDEO_TS.VOB",
-            "VTS_01_0.IFO",
-            "VTS_01_0.BUP",
-            "VTS_01_1.VOB",
-        ]
-        for filename in required_files:
-            (video_ts_dir / filename).touch()
+        def mock_dvdauthor_side_effect(xml_file, video_ts_dir):
+            # Create required DVD files for validation after dvdauthor "runs"
+            required_files = [
+                "VIDEO_TS.IFO",
+                "VIDEO_TS.BUP",
+                "VIDEO_TS.VOB",
+                "VTS_01_0.IFO",
+                "VTS_01_0.BUP",
+                "VTS_01_1.VOB",
+            ]
+            for filename in required_files:
+                (video_ts_dir / filename).touch()
+            return 25.5
+
+        mock_run_dvdauthor.side_effect = mock_dvdauthor_side_effect
 
         authored_dvd = dvd_author.create_dvd_structure(
             converted_videos=sample_converted_videos,
@@ -691,7 +697,9 @@ class TestDVDAuthor:
         )
 
         assert authored_dvd.iso_file == iso_file
-        mock_create_iso.assert_called_once_with(tmp_path / "output", video_ts_dir)
+        mock_create_iso.assert_called_once_with(
+            tmp_path / "output", tmp_path / "output" / "VIDEO_TS", "Test DVD"
+        )
 
     @patch("src.services.dvd_author.DVDAuthor._run_dvdauthor")
     @patch("src.services.dvd_author.DVDAuthor._create_dvd_xml")

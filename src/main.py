@@ -78,9 +78,9 @@ Examples:
         "(default: NTSC)",
     )
     parser.add_argument(
-        "--iso",
+        "--no-iso",
         action="store_true",
-        help="Generate ISO image after creating DVD structure",
+        help="Skip ISO image generation (ISO creation is enabled by default)",
     )
 
     # Cache behavior options
@@ -188,8 +188,8 @@ def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Se
         updates["menu_title"] = args.menu_title
     if args.video_format:
         updates["video_format"] = args.video_format
-    if args.iso:
-        updates["generate_iso"] = True
+    if args.no_iso:
+        updates["generate_iso"] = False
 
     # Cache settings
     if args.force_download:

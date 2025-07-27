@@ -262,7 +262,7 @@ class DVDAuthor:
             iso_file = None
             if create_iso:
                 self._report_progress("Creating ISO image", 0.9)
-                iso_file = self._create_iso(output_dir, video_ts_dir)
+                iso_file = self._create_iso(output_dir, video_ts_dir, menu_title)
                 authored_dvd.iso_file = iso_file
 
             self._report_progress("DVD creation complete", 1.0)
@@ -360,7 +360,7 @@ class DVDAuthor:
         menus = ET.SubElement(vmgm, "menus")
 
         # Add video format to menus (satisfies VMGM)
-        ET.SubElement(menus, "video", format=video_format, aspect="4:3")
+        ET.SubElement(menus, "video", format=video_format, aspect="16:9")
 
         pgc = ET.SubElement(menus, "pgc")
 
@@ -372,7 +372,7 @@ class DVDAuthor:
         titles = ET.SubElement(titleset, "titles")
 
         # Add video format to titles
-        ET.SubElement(titles, "video", format=video_format, aspect="4:3")
+        ET.SubElement(titles, "video", format=video_format, aspect="16:9")
 
         title_pgc = ET.SubElement(titles, "pgc")
 
@@ -381,9 +381,7 @@ class DVDAuthor:
         for chapter in ordered_chapters:
             # Normalize filename for DVD compatibility
             normalized_path = self._normalize_video_path(chapter.video_file.file_path)
-            vob = ET.SubElement(
-                title_pgc, "vob", file=str(normalized_path), chapters="0"
-            )
+            ET.SubElement(title_pgc, "vob", file=str(normalized_path), chapters="0")
 
         # Write XML to temporary file
         xml_file = video_ts_dir.parent / "dvd_structure.xml"
@@ -481,12 +479,15 @@ class DVDAuthor:
                 f"dvdauthor execution failed: {e.stderr or e.stdout}"
             ) from e
 
-    def _create_iso(self, output_dir: Path, video_ts_dir: Path) -> Path:
+    def _create_iso(
+        self, output_dir: Path, video_ts_dir: Path, title: str = "dvd"
+    ) -> Path:
         """Create ISO image from VIDEO_TS directory.
 
         Args:
             output_dir: Output directory for ISO file
             video_ts_dir: VIDEO_TS directory to create ISO from
+            title: Title to use for the ISO filename (will be cleaned)
 
         Returns:
             Path to created ISO file
@@ -496,7 +497,20 @@ class DVDAuthor:
         """
         logger.info("Creating ISO image from VIDEO_TS directory")
 
-        iso_file = output_dir / "dvd.iso"
+        # Create clean filename from title
+        from ..utils.filename import normalize_to_ascii
+
+        clean_title = normalize_to_ascii(title)
+        # Remove unsafe chars and replace spaces with underscores
+        import re
+
+        clean_title = re.sub(r'[<>:"/\\|?*\s]', "_", clean_title)
+        # Limit length and ensure it ends with .iso
+        clean_title = clean_title[:50].strip("_.- ")
+        if not clean_title:
+            clean_title = "dvd"
+
+        iso_file = output_dir / f"{clean_title}.iso"
 
         # Use genisoimage or mkisofs to create ISO
         iso_tools = ["genisoimage", "mkisofs"]

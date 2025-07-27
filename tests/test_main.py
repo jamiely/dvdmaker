@@ -45,7 +45,7 @@ class TestArgumentParser:
 
         assert args.playlist_url == "https://youtube.com/playlist?list=PLxxx"
         assert args.quality == "best"
-        assert not args.iso
+        assert not args.no_iso
         assert not args.force_download
         assert not args.force_convert
 
@@ -68,7 +68,7 @@ class TestArgumentParser:
                 "My DVD",
                 "--video-format",
                 "PAL",
-                "--iso",
+                "--no-iso",
                 "--force-download",
                 "--force-convert",
                 "--download-tools",
@@ -89,7 +89,7 @@ class TestArgumentParser:
         assert args.quality == "720p"
         assert args.menu_title == "My DVD"
         assert args.video_format == "PAL"
-        assert args.iso
+        assert args.no_iso
         assert args.force_download
         assert args.force_convert
         assert args.download_tools
@@ -253,7 +253,7 @@ class TestSettingsMerge:
             quality=None,
             menu_title=None,
             video_format=None,
-            iso=False,
+            no_iso=False,
             force_download=False,
             force_convert=False,
             use_system_tools=False,
@@ -280,7 +280,7 @@ class TestSettingsMerge:
             quality="720p",
             menu_title="Custom Title",
             video_format="PAL",
-            iso=True,
+            no_iso=True,
             force_download=True,
             force_convert=True,
             use_system_tools=False,
@@ -298,7 +298,7 @@ class TestSettingsMerge:
         assert merged.video_quality == "720p"
         assert merged.menu_title == "Custom Title"
         assert merged.video_format == "PAL"
-        assert merged.generate_iso is True
+        assert merged.generate_iso is False
         assert merged.force_download is True
         assert merged.force_convert is True
         assert merged.download_tools is True
@@ -318,7 +318,7 @@ class TestSettingsMerge:
             quality=None,
             menu_title=None,
             video_format=None,
-            iso=False,
+            no_iso=False,
             force_download=False,
             force_convert=False,
             use_system_tools=True,
@@ -344,7 +344,7 @@ class TestSettingsMerge:
             quality=None,
             menu_title=None,
             video_format="PAL",
-            iso=False,
+            no_iso=False,
             force_download=False,
             force_convert=False,
             use_system_tools=False,
