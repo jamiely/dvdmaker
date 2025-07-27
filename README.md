@@ -13,6 +13,9 @@ Convert YouTube playlists into physical DVDs.
 - **Error Handling**: Graceful handling of missing/private videos with partial playlist success
 - **Rate Limiting**: Respectful downloading with configurable rate limits
 - **Cross-platform**: Support for Linux and macOS (Intel/Apple Silicon)
+- **DVD Capacity Management**: Automatically excludes videos when playlist exceeds DVD capacity with detailed warnings
+- **Comprehensive Metrics**: Reports total processing time, file sizes, and video durations in human-readable format
+- **Platform-specific Instructions**: Provides tailored tool installation instructions based on detected platform
 
 ## Requirements
 
@@ -64,22 +67,63 @@ sudo yum install dvdauthor
 python -m dvdmaker --playlist-url "https://www.youtube.com/playlist?list=..." [options]
 ```
 
+### Examples
+
+Basic usage:
+```bash
+python -m dvdmaker --playlist-url "https://www.youtube.com/playlist?list=PLxxx"
+```
+
+Custom output directory and DVD title:
+```bash
+python -m dvdmaker --playlist-url "PLxxx" --output-dir ./my-dvd --menu-title "My Collection"
+```
+
+PAL format with 4:3 aspect ratio:
+```bash
+python -m dvdmaker --playlist-url "PLxxx" --video-format PAL --aspect-ratio "4:3"
+```
+
+Skip ISO generation:
+```bash
+python -m dvdmaker --playlist-url "PLxxx" --no-iso
+```
+
 ### Options
 
+#### Required
+- `--playlist-url`: YouTube playlist URL or playlist ID
+
+#### Directory Options
 - `--output-dir`: Specify output directory (default: ./output)
 - `--cache-dir`: Cache directory for downloaded/processed files (default: ./cache)
 - `--temp-dir`: Temporary files location (default: ./temp)
+
+#### Video Options
 - `--quality`: Video quality preference (default: best)
-- `--menu-title`: Custom DVD menu title
-- `--iso`: Generate ISO image after DVD creation
+- `--video-format`: DVD video format - NTSC (29.97fps, 720x480) or PAL (25fps, 720x576) (default: NTSC)
+- `--aspect-ratio`: DVD aspect ratio - 4:3 (standard) or 16:9 (widescreen) (default: 16:9)
+
+#### DVD Options
+- `--menu-title`: Custom DVD menu title (default: playlist title)
+- `--no-iso`: Skip ISO image generation (ISO creation is enabled by default)
+
+#### Cache Options
 - `--force-download`: Force re-download even if cached
 - `--force-convert`: Force re-conversion even if cached
+
+#### Tool Options
 - `--download-tools`: Download required tools to local bin directory
 - `--use-system-tools`: Use system-installed tools instead of local bin
+
+#### Logging Options
 - `--log-level`: Set logging level (TRACE, DEBUG, INFO, WARNING, ERROR)
 - `--log-file`: Specify log file path (default: logs/dvdmaker.log)
 - `--verbose`: Enable verbose console output
 - `--quiet`: Suppress all console output except errors
+
+#### Configuration
+- `--config`: Configuration file path
 
 ## How It Works
 
@@ -111,7 +155,8 @@ Technical specifications:
 - **Video**: MPEG-2 encoding at 6Mbps bitrate
 - **Audio**: AC-3 encoding at 448kbps bitrate, stereo, 48kHz sample rate
 - **Resolution**: 720x480 (NTSC) or 720x576 (PAL)
-- **Aspect Ratio**: 4:3 standard DVD format
+- **Aspect Ratio**: 16:9 widescreen (default) or 4:3 standard format
+- **Frame Rate**: 29.97fps (NTSC) or 25fps (PAL)
 
 ### DVD Authoring
 
@@ -120,7 +165,7 @@ Creates complete DVD structures using dvdauthor:
 - **DVD Structure Creation**: Generates VIDEO_TS directory structure with proper IFO/BUP/VOB files
 - **Chapter Organization**: Combines multiple videos into a single title with sequential chapters (maintains playlist order)
 - **Menu Generation**: Creates interactive DVD menus with chapter navigation
-- **Capacity Management**: Warns users when content exceeds standard DVD capacity (4.7GB)
+- **Capacity Management**: Automatically excludes videos when content exceeds standard DVD capacity (4.7GB) with detailed warnings including video names and YouTube URLs
 - **Partial Success**: Creates DVDs with successfully processed videos even if some conversions fail
 - **ISO Generation**: Optional ISO image creation for burning or virtual drive mounting
 - **Structure Validation**: Validates completed DVD structure for compatibility

@@ -272,7 +272,7 @@ def validate_tools(tool_manager: ToolManager) -> bool:
     logger = get_logger(__name__)
 
     with operation_context("tool_validation"):
-        logger.info("Validating required tools...")
+        logger.debug("Validating required tools...")
 
         try:
             tools_available, missing_tools = tool_manager.ensure_tools_available()
@@ -288,7 +288,7 @@ def validate_tools(tool_manager: ToolManager) -> bool:
                         )
                 return False
 
-            logger.info("All required tools are available")
+            logger.debug("All required tools are available")
             return True
 
         except ToolManagerError as e:
@@ -320,7 +320,7 @@ def main() -> int:
         with operation_context("dvd_creation", playlist_url=args.playlist_url):
             start_time = time.time()
             logger.info(f"Starting DVD creation for playlist: {args.playlist_url}")
-            logger.info(f"Output directory: {settings.output_dir}")
+            logger.debug(f"Output directory: {settings.output_dir}")
 
             # Create necessary directories
             settings.create_directories()

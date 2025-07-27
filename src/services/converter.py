@@ -249,9 +249,9 @@ class VideoConverter:
                 str(video_path),
             ]
 
-            logger.info(f"Executing ffprobe command: {' '.join(cmd)}")
+            logger.debug(f"Executing ffprobe command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            logger.info(f"ffprobe completed with return code {result.returncode}")
+            logger.debug(f"ffprobe completed with return code {result.returncode}")
 
             if result.stderr:
                 if result.returncode == 0:
@@ -411,7 +411,7 @@ class VideoConverter:
         Raises:
             ConversionError: If command fails
         """
-        logger.info(f"Running {operation_name}: {' '.join(cmd[:3])}...")
+        logger.debug(f"Running {operation_name}: {' '.join(cmd[:3])}...")
 
         try:
             process = subprocess.Popen(
@@ -475,7 +475,7 @@ class VideoConverter:
                 logger.error(f"{operation_name} failed: {error_output}")
                 raise ConversionError(f"{operation_name} failed: {error_output}")
 
-            logger.info(f"{operation_name} completed successfully")
+            logger.debug(f"{operation_name} completed successfully")
 
         except subprocess.SubprocessError as e:
             logger.error(f"{operation_name} failed with exception: {e}")
@@ -559,7 +559,7 @@ class VideoConverter:
 
         # Check cache first
         if not force_convert and self.is_video_converted(video_file.metadata):
-            logger.info(f"Video {video_id} already converted, using cached version")
+            logger.debug(f"Video {video_id} already converted, using cached version")
             converted = self.get_converted_video(video_file.metadata)
             if converted:
                 return converted

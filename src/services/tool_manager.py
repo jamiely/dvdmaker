@@ -102,7 +102,7 @@ class ToolManager:
             CompletedProcess result
         """
         cmd_str = " ".join(str(arg) for arg in cmd)
-        logger.info(f"Executing command: {cmd_str}")
+        logger.debug(f"Executing command: {cmd_str}")
 
         try:
             result = subprocess.run(
@@ -621,7 +621,7 @@ class ToolManager:
             logger.debug("Using cached tool status")
             return self._tools_status_cache
 
-        logger.info("Checking tool availability and status")
+        logger.debug("Checking tool availability and status")
 
         tools_status = {}
 
@@ -694,7 +694,7 @@ class ToolManager:
         Returns:
             Tuple of (success, list of missing tools with instructions)
         """
-        logger.info("Ensuring all required tools are available")
+        logger.debug("Ensuring all required tools are available")
 
         tools_status = self.check_tools(use_cache=False)  # Force fresh check
         missing_tools: List[str] = []

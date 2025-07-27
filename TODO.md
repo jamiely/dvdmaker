@@ -1,9 +1,12 @@
-* [x] Add run time estimation summary after we are done.
+* [ ] These should be DEBUG level messages:
+  * [ ] Command completed with return code 0
+  * [ ] Starting conversion of video
+  * [ ] Extracting ...
+  * [ ] 18:59:03 - INFO - Successfully extracted 2 video metadata entries
+  * [ ] `All 2 videos fit on DVD` there should still be a warning if not all playlist videos fit on the DVD
+  * [ ] Using 2 videos for DVD
+  * [ ] `18:58:54 - WARNING - Command stderr: DVDAuthor::dvdauthor, version 0.7.2.` this should not be a warning b/c it ALWAYS happens. This should be DEBUG level.
+  * [ ] DVD Author Progress
+  * [ ] Creating ISO
+  * [ ] Creating DVD structure with
 * [ ] Cover info-level debug statements made in the various files with unit tests.
-* [x] Add file size metrics after each run.
-* [x] After downloading playlist, provide total length of playlist.
-* [x] If the playlist length exceeds the capacity of the DVD, then we want to exclude videos they all fit on the DVD. Warn about this case, and specify all the videos that could not fit on the dvd. Specify both their names and youtube URL.
-* [x] We know exactly what platform we're running on, so cater tool installation messages to the platform. For example, on macos, we don't need to specify linux instructions.
-* [ ] Document all missing options in README including aspect ratio
-* [x] Make duration display human-readable (hours, minutes, seconds instead of just seconds)
-* [ ] There are too many INFO level messages (that appear everytime the program is run). Be more selective about what appears by downgrading some messages to DEBUG or TRACE.
