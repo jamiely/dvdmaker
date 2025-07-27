@@ -555,7 +555,7 @@ class VideoConverter:
             ConversionError: If conversion fails
         """
         video_id = video_file.metadata.video_id
-        logger.info(f"Starting conversion of video {video_id}")
+        logger.debug(f"Starting conversion of video {video_id}")
 
         # Check cache first
         if not force_convert and self.is_video_converted(video_file.metadata):

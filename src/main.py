@@ -426,7 +426,7 @@ def main() -> int:
                     logger.error("No videos fit on DVD after capacity check")
                     return 1
 
-                logger.info(
+                logger.debug(
                     f"Using {len(final_videos)} videos for DVD "
                     f"({capacity_result.total_size_gb:.2f}GB)"
                 )

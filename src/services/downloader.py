@@ -113,7 +113,7 @@ class VideoDownloader:
             )
 
             # Log command completion and output
-            logger.info(f"yt-dlp completed with return code {result.returncode}")
+            logger.debug(f"yt-dlp completed with return code {result.returncode}")
 
             if result.stdout:
                 logger.debug(f"yt-dlp stdout: {result.stdout.strip()}")
@@ -175,7 +175,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If playlist extraction fails
         """
-        logger.info(f"Extracting playlist metadata from: {playlist_url}")
+        logger.debug(f"Extracting playlist metadata from: {playlist_url}")
 
         callback = progress_callback or SilentProgressCallback()
         tracker = ProgressTracker(1, callback, "Extracting playlist metadata...")
@@ -251,7 +251,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If video extraction fails
         """
-        logger.info(f"Extracting video metadata from playlist: {playlist_url}")
+        logger.debug(f"Extracting video metadata from playlist: {playlist_url}")
 
         callback = progress_callback or SilentProgressCallback()
         tracker = ProgressTracker(1, callback, "Extracting video metadata...")
@@ -296,7 +296,7 @@ class VideoDownloader:
                     continue
 
             tracker.complete(f"Extracted metadata for {len(videos)} videos")
-            logger.info(f"Successfully extracted {len(videos)} video metadata entries")
+            logger.debug(f"Successfully extracted {len(videos)} video metadata entries")
 
             return videos
 
@@ -321,7 +321,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If playlist extraction fails
         """
-        logger.info(f"Extracting complete playlist: {playlist_url}")
+        logger.debug(f"Extracting complete playlist: {playlist_url}")
 
         callback = progress_callback or SilentProgressCallback()
 

@@ -172,7 +172,7 @@ class DVDAuthor:
         """
         if self.progress_callback:
             self.progress_callback(message, progress)
-        logger.info(f"DVD Author Progress: {message} ({progress:.1%})")
+        logger.debug(f"DVD Author Progress: {message} ({progress:.1%})")
 
     def create_dvd_structure(
         self,
@@ -196,7 +196,7 @@ class DVDAuthor:
             DVDAuthoringError: If DVD authoring fails
             DVDCapacityExceededError: If videos exceed DVD capacity
         """
-        logger.info(
+        logger.debug(
             f"Creating DVD structure with {len(converted_videos)} videos: "
             f"'{menu_title}'"
         )
@@ -503,7 +503,7 @@ class DVDAuthor:
         Raises:
             DVDAuthoringError: If ISO creation fails
         """
-        logger.info("Creating ISO image from VIDEO_TS directory")
+        logger.debug("Creating ISO image from VIDEO_TS directory")
 
         # Create clean filename from title
         from ..utils.filename import normalize_to_ascii

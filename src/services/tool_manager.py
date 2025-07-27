@@ -114,7 +114,7 @@ class ToolManager:
             )
 
             # Log command completion and output
-            logger.info(
+            logger.debug(
                 f"Command completed with return code {result.returncode}: {cmd_str}"
             )
 
@@ -122,7 +122,13 @@ class ToolManager:
                 logger.debug(f"Command stdout: {result.stdout.strip()}")
 
             if capture_output and result.stderr:
-                if result.returncode == 0:
+                # Special case: dvdauthor --help returns exit code 1 but is successful
+                is_dvdauthor_help = (
+                    "dvdauthor" in cmd_str
+                    and "--help" in cmd_str
+                    and result.returncode == 1
+                )
+                if result.returncode == 0 or is_dvdauthor_help:
                     logger.debug(f"Command stderr: {result.stderr.strip()}")
                 else:
                     logger.warning(f"Command stderr: {result.stderr.strip()}")
