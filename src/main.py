@@ -471,7 +471,6 @@ def main() -> int:
             if authored_dvd.iso_file:
                 logger.info(f"ISO file: {authored_dvd.iso_file}")
 
-            logger.info("DVD creation completed successfully!")
             return 0
 
     except KeyboardInterrupt:
