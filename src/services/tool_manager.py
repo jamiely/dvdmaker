@@ -773,7 +773,7 @@ class ToolManager:
         success = len(missing_tools) == 0
 
         if success:
-            logger.info("All required tools are available")
+            logger.debug("All required tools are available")
         else:
             logger.warning(f"Missing tools: {missing_tools}")
 
