@@ -452,24 +452,33 @@ def main() -> int:
             total_time = int(end_time - start_time)
             total_time_str = format_duration_human_readable(total_time)
 
-            logger.info("=== DVD Creation Summary ===")
-            logger.info(
+            # Display summary to both log and stdout
+            summary_lines = [
+                "=== DVD Creation Summary ===",
                 f"Total videos processed: {len(final_videos)} "
-                f"(duration: {capacity_result.total_duration_human_readable})"
-            )
-            logger.info(f"Total size: {capacity_result.total_size_gb:.2f}GB")
+                f"(duration: {capacity_result.total_duration_human_readable})",
+                f"Total size: {capacity_result.total_size_gb:.2f}GB",
+            ]
+            
             if capacity_result.has_exclusions:
                 excluded_count = len(capacity_result.excluded_videos)
-                logger.info(
+                summary_lines.append(
                     f"Videos excluded: {excluded_count} "
                     f"({capacity_result.excluded_size_gb:.2f}GB)"
                 )
-            logger.info(f"Total processing time: {total_time_str}")
-
-            # Show output locations
-            logger.info(f"DVD structure: {authored_dvd.video_ts_dir}")
+            
+            summary_lines.extend([
+                f"Total processing time: {total_time_str}",
+                f"DVD structure: {authored_dvd.video_ts_dir}",
+            ])
+            
             if authored_dvd.iso_file:
-                logger.info(f"ISO file: {authored_dvd.iso_file}")
+                summary_lines.append(f"ISO file: {authored_dvd.iso_file}")
+            
+            # Log and print to stdout
+            for line in summary_lines:
+                logger.info(line)
+                print(line)
 
             return 0
 
