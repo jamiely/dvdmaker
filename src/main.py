@@ -601,8 +601,8 @@ def main() -> int:
                     iso_file_path = Path(authored_dvd.iso_file)
                     iso_path = iso_file_path.relative_to(Path.cwd())
                 except ValueError:
-                    # If path is not relative to cwd, just use the filename
-                    iso_path = Path(authored_dvd.iso_file).name
+                    # If path is not relative to cwd, show the full absolute path
+                    iso_path = Path(authored_dvd.iso_file).resolve()
                 summary_lines.append(f"ISO file: {iso_path}")
 
             # Log to file first
