@@ -5,7 +5,7 @@ import stat
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, mock_open, patch
+from unittest.mock import MagicMock, Mock, mock_open, patch
 
 import pytest
 import requests
@@ -765,3 +765,218 @@ class TestToolManagerExceptions:
         error = ToolValidationError("Validation failed")
         assert str(error) == "Validation failed"
         assert isinstance(error, ToolManagerError)
+
+
+class TestYtDlpUpdateFunctionality:
+    """Test cases for yt-dlp update functionality."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.settings = Settings(
+            bin_dir=Path("/tmp/test_bin"),
+            download_tools=True,
+            use_system_tools=False,
+            generate_iso=False,
+        )
+        self.progress_callback = Mock()
+        self.tool_manager = ToolManager(self.settings, self.progress_callback)
+
+    @patch("src.services.tool_manager.requests.get")
+    def test_get_latest_ytdlp_version_success(self, mock_get):
+        """Test successfully getting latest yt-dlp version."""
+        # Mock successful API response
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"tag_name": "2024.01.04"}
+        mock_get.return_value = mock_response
+
+        version = self.tool_manager.get_latest_ytdlp_version()
+
+        assert version == "2024.01.04"
+        mock_get.assert_called_once_with(
+            "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest", timeout=10
+        )
+
+    @patch("src.services.tool_manager.requests.get")
+    def test_get_latest_ytdlp_version_request_failure(self, mock_get):
+        """Test handling of request failure when getting latest version."""
+        import requests
+
+        mock_get.side_effect = requests.exceptions.RequestException("Network error")
+
+        version = self.tool_manager.get_latest_ytdlp_version()
+
+        assert version is None
+
+    @patch("src.services.tool_manager.requests.get")
+    def test_get_latest_ytdlp_version_invalid_response(self, mock_get):
+        """Test handling of invalid API response."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"name": "invalid"}  # Missing tag_name
+        mock_get.return_value = mock_response
+
+        version = self.tool_manager.get_latest_ytdlp_version()
+
+        assert version is None
+
+    def test_compare_versions_newer_available(self):
+        """Test version comparison when newer version is available."""
+        result = self.tool_manager.compare_versions("2023.12.30", "2024.01.04")
+        assert result is True
+
+    def test_compare_versions_current_is_latest(self):
+        """Test version comparison when current version is latest."""
+        result = self.tool_manager.compare_versions("2024.01.04", "2024.01.04")
+        assert result is False
+
+    def test_compare_versions_current_is_newer(self):
+        """Test version comparison when current version is newer than available."""
+        result = self.tool_manager.compare_versions("2024.01.05", "2024.01.04")
+        assert result is False
+
+    def test_compare_versions_with_v_prefix(self):
+        """Test version comparison with 'v' prefix."""
+        result = self.tool_manager.compare_versions("v2023.12.30", "v2024.01.04")
+        assert result is True
+
+    def test_compare_versions_different_formats(self):
+        """Test version comparison with different version formats."""
+        result = self.tool_manager.compare_versions("2023.12.30", "2024.1.4")
+        assert result is True
+
+    def test_compare_versions_with_suffixes(self):
+        """Test version comparison with version suffixes."""
+        result = self.tool_manager.compare_versions("2024.01.04-dev", "2024.01.04")
+        assert result is False
+
+    def test_compare_versions_invalid_versions(self):
+        """Test version comparison with invalid version strings."""
+        result = self.tool_manager.compare_versions("invalid", "2024.01.04")
+        assert result is False
+
+        result = self.tool_manager.compare_versions("2024.01.04", "invalid")
+        assert result is False
+
+    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "get_latest_ytdlp_version")
+    @patch.object(ToolManager, "download_tool")
+    def test_check_and_update_ytdlp_no_current_version(
+        self, mock_download, mock_latest, mock_current
+    ):
+        """Test yt-dlp update when no current version exists."""
+        mock_current.return_value = None
+        mock_download.return_value = True
+
+        result = self.tool_manager.check_and_update_ytdlp()
+
+        assert result is True
+        mock_download.assert_called_once_with("yt-dlp")
+
+    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "get_latest_ytdlp_version")
+    def test_check_and_update_ytdlp_no_latest_version(self, mock_latest, mock_current):
+        """Test yt-dlp update when latest version cannot be determined."""
+        mock_current.return_value = "2024.01.04"
+        mock_latest.return_value = None
+
+        result = self.tool_manager.check_and_update_ytdlp()
+
+        assert result is True  # Should not fail if can't check for updates
+
+    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "get_latest_ytdlp_version")
+    @patch.object(ToolManager, "compare_versions")
+    def test_check_and_update_ytdlp_already_current(
+        self, mock_compare, mock_latest, mock_current
+    ):
+        """Test yt-dlp update when current version is already latest."""
+        mock_current.return_value = "2024.01.04"
+        mock_latest.return_value = "2024.01.04"
+        mock_compare.return_value = False  # No update needed
+
+        result = self.tool_manager.check_and_update_ytdlp()
+
+        assert result is True
+
+    @patch.object(ToolManager, "is_tool_available_locally")
+    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "get_latest_ytdlp_version")
+    @patch.object(ToolManager, "compare_versions")
+    @patch.object(ToolManager, "get_tool_path")
+    @patch.object(ToolManager, "download_tool")
+    @patch("src.services.tool_manager.shutil.copy2")
+    def test_check_and_update_ytdlp_successful_update(
+        self,
+        mock_copy,
+        mock_download,
+        mock_path,
+        mock_compare,
+        mock_latest,
+        mock_current,
+        mock_available,
+        tmp_path,
+    ):
+        """Test successful yt-dlp update."""
+        # Setup mocks
+        current_path = tmp_path / "yt-dlp"
+        current_path.write_text("fake binary")
+
+        mock_available.return_value = True  # Tool is available locally
+        mock_current.side_effect = [
+            "2023.12.30",
+            "2024.01.04",
+        ]  # Before and after update
+        mock_latest.return_value = "2024.01.04"
+        mock_compare.return_value = True  # Update needed
+        mock_path.return_value = current_path
+        mock_download.return_value = True
+
+        result = self.tool_manager.check_and_update_ytdlp()
+
+        assert result is True
+        mock_download.assert_called_once_with("yt-dlp")
+        mock_copy.assert_called_once()  # Backup created
+
+    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "get_latest_ytdlp_version")
+    @patch.object(ToolManager, "compare_versions")
+    @patch.object(ToolManager, "get_tool_path")
+    @patch.object(ToolManager, "download_tool")
+    @patch("src.services.tool_manager.shutil.copy2")
+    def test_check_and_update_ytdlp_download_failure(
+        self,
+        mock_copy,
+        mock_download,
+        mock_path,
+        mock_compare,
+        mock_latest,
+        mock_current,
+        tmp_path,
+    ):
+        """Test yt-dlp update when download fails."""
+        # Setup mocks
+        current_path = tmp_path / "yt-dlp"
+        current_path.write_text("fake binary")
+        backup_path = current_path.with_suffix(".backup-2023.12.30")
+
+        mock_current.return_value = "2023.12.30"
+        mock_latest.return_value = "2024.01.04"
+        mock_compare.return_value = True  # Update needed
+        mock_path.return_value = current_path
+        mock_download.return_value = False  # Download fails
+
+        # Create backup file to test restoration
+        backup_path.write_text("backup binary")
+
+        result = self.tool_manager.check_and_update_ytdlp()
+
+        assert result is False
+        mock_download.assert_called_once_with("yt-dlp")
+
+    @patch.object(ToolManager, "get_tool_version")
+    def test_check_and_update_ytdlp_exception_handling(self, mock_current):
+        """Test yt-dlp update exception handling."""
+        mock_current.side_effect = Exception("Unexpected error")
+
+        result = self.tool_manager.check_and_update_ytdlp()
+
+        assert result is False

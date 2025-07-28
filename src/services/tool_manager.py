@@ -806,3 +806,183 @@ class ToolManager:
 
         logger.debug(f"Command for {tool_name}: {command}")
         return command
+
+    def get_latest_ytdlp_version(self) -> Optional[str]:
+        """Get the latest yt-dlp version from GitHub releases.
+
+        Returns:
+            Latest version string or None if unable to determine
+        """
+        try:
+            logger.debug("Checking for latest yt-dlp version from GitHub")
+
+            # Use GitHub API to get latest release info
+            api_url = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+            response = requests.get(api_url, timeout=10)
+            response.raise_for_status()
+
+            release_data = response.json()
+            latest_version = str(release_data.get("tag_name", "")).strip()
+
+            if latest_version:
+                logger.debug(f"Latest yt-dlp version: {latest_version}")
+                return latest_version
+            else:
+                logger.warning(
+                    "Could not determine latest yt-dlp version from API response"
+                )
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Failed to check latest yt-dlp version: {e}")
+            return None
+        except (KeyError, ValueError) as e:
+            logger.warning(f"Failed to parse yt-dlp version response: {e}")
+            return None
+
+    def compare_versions(self, current: str, latest: str) -> bool:
+        """Compare version strings to determine if update is needed.
+
+        Args:
+            current: Current version string
+            latest: Latest available version string
+
+        Returns:
+            True if latest is newer than current, False otherwise
+        """
+        try:
+            # Remove 'v' prefix if present and any non-numeric suffixes
+            def clean_version(version: str) -> Tuple[int, ...]:
+                cleaned = version.lstrip("v").split("-")[0].split("+")[0]
+                parts = []
+                for part in cleaned.split("."):
+                    try:
+                        parts.append(int(part))
+                    except ValueError:
+                        # Skip non-numeric parts
+                        break
+                return tuple(parts)
+
+            current_parts = clean_version(current)
+            latest_parts = clean_version(latest)
+
+            # If either version parsing failed (empty tuple), can't compare
+            if not current_parts or not latest_parts:
+                logger.warning(
+                    f"Failed to parse version parts: current={current_parts}, "
+                    f"latest={latest_parts}"
+                )
+                return False
+
+            # Pad shorter version with zeros for comparison
+            max_len = max(len(current_parts), len(latest_parts))
+            current_padded = current_parts + (0,) * (max_len - len(current_parts))
+            latest_padded = latest_parts + (0,) * (max_len - len(latest_parts))
+
+            is_newer = latest_padded > current_padded
+            logger.debug(
+                f"Version comparison: {current} -> {latest} (newer: {is_newer})"
+            )
+
+            return is_newer
+
+        except Exception as e:
+            logger.warning(f"Failed to compare versions {current} vs {latest}: {e}")
+            return False
+
+    def check_and_update_ytdlp(self) -> bool:
+        """Check for yt-dlp updates and update if a newer version is available.
+
+        Returns:
+            True if yt-dlp was updated or is already current, False if update failed
+        """
+        logger.info("Checking for yt-dlp updates...")
+
+        try:
+            # Check if yt-dlp is available locally and get its version
+            if self.is_tool_available_locally("yt-dlp"):
+                local_path = self.get_tool_path("yt-dlp")
+                current_version = self.get_tool_version("yt-dlp", local_path)
+            else:
+                current_version = None
+
+            if not current_version:
+                logger.info("yt-dlp not found locally, will download latest version")
+                return self.download_tool("yt-dlp")
+
+            # Get latest version
+            latest_version = self.get_latest_ytdlp_version()
+            if not latest_version:
+                logger.warning(
+                    "Could not determine latest yt-dlp version, skipping update"
+                )
+                return True  # Don't fail if we can't check for updates
+
+            # Compare versions
+            if not self.compare_versions(current_version, latest_version):
+                logger.info(
+                    f"yt-dlp is already up to date (current: {current_version})"
+                )
+                return True
+
+            logger.info(
+                f"yt-dlp update available: {current_version} -> {latest_version}"
+            )
+
+            # Back up current version
+            current_path = self.get_tool_path("yt-dlp")
+            backup_path = None
+            if current_path and current_path.exists():
+                backup_path = current_path.with_suffix(f".backup-{current_version}")
+                logger.debug(f"Backing up current yt-dlp to {backup_path}")
+                shutil.copy2(current_path, backup_path)
+
+            # Download new version
+            success = self.download_tool("yt-dlp")
+
+            if success:
+                logger.info(
+                    f"Successfully updated yt-dlp from {current_version} to "
+                    f"{latest_version}"
+                )
+
+                # Verify the new version
+                new_version = self.get_tool_version("yt-dlp")
+                if new_version and new_version != current_version:
+                    logger.info(f"yt-dlp update verified (new version: {new_version})")
+
+                    # Clean up backup if update was successful
+                    if current_path and backup_path and backup_path.exists():
+                        try:
+                            backup_path.unlink()
+                            logger.debug("Removed backup file after successful update")
+                        except OSError as e:
+                            logger.warning(f"Could not remove backup file: {e}")
+                else:
+                    logger.warning(
+                        "Could not verify yt-dlp update, but download appeared "
+                        "successful"
+                    )
+
+                return True
+            else:
+                logger.error("Failed to download new yt-dlp version")
+
+                # Restore backup if available
+                if current_path and backup_path and backup_path.exists():
+                    try:
+                        shutil.copy2(backup_path, current_path)
+                        backup_path.unlink()
+                        logger.info(
+                            "Restored previous yt-dlp version after failed update"
+                        )
+                    except OSError as e:
+                        logger.error(
+                            f"Could not restore backup after failed update: {e}"
+                        )
+
+                return False
+
+        except Exception as e:
+            logger.error(f"Unexpected error during yt-dlp update check: {e}")
+            return False

@@ -284,6 +284,15 @@ def validate_tools(tool_manager: ToolManager) -> bool:
         logger.debug("Validating required tools...")
 
         try:
+            # Check for yt-dlp updates first (before ensuring tools are available)
+            update_success = tool_manager.check_and_update_ytdlp()
+            if update_success:
+                logger.debug("yt-dlp update check completed successfully")
+            else:
+                logger.warning(
+                    "yt-dlp update check failed, but continuing with existing version"
+                )
+
             tools_available, missing_tools = tool_manager.ensure_tools_available()
 
             if not tools_available:
@@ -597,7 +606,7 @@ def main() -> int:
             # Log to file first
             for line in summary_lines:
                 logger.info(line)
-            
+
             # Then print summary to stdout (after logging is complete)
             print()  # Add spacing
             for line in summary_lines:
