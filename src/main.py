@@ -594,9 +594,13 @@ def main() -> int:
             if authored_dvd.iso_file:
                 summary_lines.append(f"ISO file: {authored_dvd.iso_file}")
 
-            # Log and print to stdout
+            # Log to file first
             for line in summary_lines:
                 logger.info(line)
+            
+            # Then print summary to stdout (after logging is complete)
+            print()  # Add spacing
+            for line in summary_lines:
                 print(line)
 
             return 0
