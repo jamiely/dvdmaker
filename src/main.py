@@ -597,10 +597,12 @@ def main() -> int:
 
             if authored_dvd.iso_file:
                 try:
-                    iso_path = authored_dvd.iso_file.relative_to(Path.cwd())
+                    # Ensure iso_file is a Path object
+                    iso_file_path = Path(authored_dvd.iso_file)
+                    iso_path = iso_file_path.relative_to(Path.cwd())
                 except ValueError:
                     # If path is not relative to cwd, just use the filename
-                    iso_path = authored_dvd.iso_file.name
+                    iso_path = Path(authored_dvd.iso_file).name
                 summary_lines.append(f"ISO file: {iso_path}")
 
             # Log to file first
