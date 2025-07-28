@@ -482,6 +482,7 @@ class TestDVDAuthor:
         authored_dvd = dvd_author.create_dvd_structure(
             converted_videos=sample_converted_videos,
             menu_title="Test DVD",
+            playlist_id="PLtest123",
             output_dir=tmp_path / "output",
             create_iso=False,
         )
@@ -501,6 +502,7 @@ class TestDVDAuthor:
             dvd_author.create_dvd_structure(
                 converted_videos=[],
                 menu_title="Test DVD",
+                playlist_id="PLtest123",
                 output_dir=tmp_path / "output",
             )
 
@@ -559,6 +561,7 @@ class TestDVDAuthor:
         authored_dvd = dvd_author.create_dvd_structure(
             converted_videos=large_videos,
             menu_title="Large DVD",
+            playlist_id="PLlarge123",
             output_dir=tmp_path / "output",
         )
 
@@ -669,7 +672,7 @@ class TestDVDAuthor:
         """Test DVD structure creation with ISO generation."""
         # Mock functions
         xml_file = tmp_path / "test.xml"
-        iso_file = tmp_path / "output" / "dvd.iso"
+        iso_file = tmp_path / "output" / "PLtest123" / "dvd.iso"
         mock_create_xml.return_value = xml_file
         mock_create_iso.return_value = iso_file
 
@@ -692,13 +695,16 @@ class TestDVDAuthor:
         authored_dvd = dvd_author.create_dvd_structure(
             converted_videos=sample_converted_videos,
             menu_title="Test DVD",
+            playlist_id="PLtest123",
             output_dir=tmp_path / "output",
             create_iso=True,
         )
 
         assert authored_dvd.iso_file == iso_file
         mock_create_iso.assert_called_once_with(
-            tmp_path / "output", tmp_path / "output" / "VIDEO_TS", "Test DVD"
+            tmp_path / "output" / "PLtest123",
+            tmp_path / "output" / "PLtest123" / "VIDEO_TS",
+            "Test DVD",
         )
 
     @patch("src.services.dvd_author.DVDAuthor._run_dvdauthor")
@@ -727,5 +733,6 @@ class TestDVDAuthor:
             dvd_author.create_dvd_structure(
                 converted_videos=sample_converted_videos,
                 menu_title="Test DVD",
+                playlist_id="PLtest123",
                 output_dir=tmp_path / "output",
             )

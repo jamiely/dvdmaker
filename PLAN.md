@@ -306,20 +306,91 @@
 - [ ] Document configuration options
 - [ ] Create development setup guide
 
-## Phase 14: Quality Assurance
+## Phase 14: Cache and Output Cleanup System
 
-### 14.1 Code Quality
+### 14.1 Cleanup Service Implementation
+- [ ] Create cleanup service module (src/services/cleanup.py)
+  - [ ] Implement CleanupManager class with dependency injection
+  - [ ] Add methods for cleaning specific data types
+  - [ ] Calculate and report storage space freed during cleanup
+  - [ ] Add safety checks to prevent accidental data loss
+- [ ] Implement granular cleanup operations
+  - [ ] Clean downloads cache (remove downloaded video files)
+  - [ ] Clean conversions cache (remove converted video files)
+  - [ ] Clean DVD output directories (remove VIDEO_TS structures)
+  - [ ] Clean ISO files (remove generated ISO images)
+  - [ ] Clean all cached and output data (comprehensive cleanup)
+- [ ] Add cleanup progress reporting and user confirmation
+  - [ ] Display files and directories to be cleaned before deletion
+  - [ ] Show total storage space to be freed
+  - [ ] Require user confirmation for destructive operations
+  - [ ] Report cleanup progress and final summary
+
+### 14.2 CLI Integration for Cleanup
+- [ ] Add cleanup arguments to main CLI parser
+  - [ ] Add `--clean` argument with choices (downloads, conversions, dvd-output, isos, all)
+  - [ ] Implement cleanup workflow in main.py
+  - [ ] Add dry-run option (`--dry-run`) to preview cleanup without deletion
+  - [ ] Add force option (`--force`) to skip confirmation prompts
+- [ ] Update argument validation
+  - [ ] Ensure `--clean` and `--playlist-url` are mutually exclusive
+  - [ ] Validate cleanup target choices
+  - [ ] Handle cleanup-specific logging and output
+
+### 14.3 Cleanup Safety and Metadata Preservation
+- [ ] Implement selective cleanup logic
+  - [ ] Preserve metadata files during cleanup operations
+  - [ ] Preserve configuration and tool version files
+  - [ ] Keep filename mapping data during cache cleanup
+  - [ ] Maintain directory structure for future operations
+- [ ] Add cleanup tests
+  - [ ] Test each cleanup target individually
+  - [ ] Test comprehensive cleanup with `--clean all`
+  - [ ] Test cleanup safety (metadata preservation)
+  - [ ] Test error handling for locked or inaccessible files
+
+## Phase 15: Concurrent Execution Support
+
+### 15.1 Cache Locking and Concurrency
+- [x] Implement file locking for cache operations to prevent corruption
+  - [x] Add file locking to CacheManager for atomic operations
+  - [x] Implement lock files for in-progress downloads and conversions
+  - [x] Handle lock timeouts and stale lock cleanup
+- [x] Update output directory structure for playlist isolation
+  - [x] Modify DVDAuthor to create playlist-specific output directories
+  - [x] Use playlist ID or sanitized title for directory naming
+  - [x] Ensure ISO files are created in playlist-specific directories
+- [x] Test concurrent script execution scenarios
+  - [x] Multiple playlists with shared video content
+  - [x] Simultaneous download/conversion operations
+  - [x] DVD authoring isolation verification
+
+### 15.2 Cache Safety Improvements
+- [x] Add process-safe metadata file updates
+  - [x] Implement atomic JSON file updates for metadata
+  - [x] Add retry logic for concurrent file access
+  - [x] Use temporary files with atomic rename for metadata persistence
+- [x] Enhance error handling for concurrent access
+  - [x] Handle file locking failures gracefully
+  - [x] Add logging for concurrent operation conflicts
+  - [x] Implement appropriate retry strategies
+
+## Phase 16: Quality Assurance
+
+### 16.1 Code Quality
 - [ ] Achieve >90% test coverage
 - [ ] Pass all linting checks (flake8, mypy)
 - [ ] Format all code with Black and isort
 - [ ] Review and refactor for SOLID principles
 - [ ] Add comprehensive docstrings
 
-### 14.2 Final Testing
+### 16.2 Final Testing
 - [ ] Test on Linux and macOS platforms
 - [ ] Test with various playlist sizes
 - [ ] Test error scenarios and recovery
 - [ ] Validate DVD compatibility with players
+- [ ] Test concurrent script execution scenarios
+- [ ] Test cleanup functionality thoroughly
 - [ ] Performance optimization if needed
 
 ## Estimated Timeline
@@ -333,9 +404,12 @@
 - **Phase 10**: 2-3 days (DVD authoring)
 - **Phase 11**: 1-2 days (CLI interface)
 - **Phase 12**: 1 day (ISO creation enhancement)
-- **Phase 13-14**: 2-3 days (Testing and QA)
+- **Phase 13**: 2-3 days (Integration testing)
+- **Phase 14**: 1-2 days (Cleanup system)
+- **Phase 15**: 1-2 days (Concurrent execution support)
+- **Phase 16**: 1-2 days (Final QA)
 
-**Total Estimated Time**: 17-25 days
+**Total Estimated Time**: 20-31 days
 
 ## Dependencies Between Phases
 - Phase 2 depends on Phase 1
@@ -346,4 +420,7 @@
 - Phases 8-10 depend on Phases 6-7
 - Phase 11 depends on Phases 8-10
 - Phase 12 depends on Phases 6 and 10 (tool management and DVD authoring)
-- Phases 13-14 depend on all previous phases
+- Phase 13 depends on all previous phases
+- Phase 14 depends on Phases 7 and 10 (cache management and DVD authoring)
+- Phase 15 depends on Phases 7 and 10 (cache management and DVD authoring)
+- Phase 16 depends on all previous phases

@@ -226,12 +226,8 @@ class TestDownloadCaching:
         result = cache_manager.is_download_cached(video_id)
         assert result is False
 
-    @patch("src.services.cache_manager.shutil.copy2")
-    @patch("src.services.cache_manager.shutil.move")
     def test_store_download_success(
         self,
-        mock_move,
-        mock_copy2,
         cache_manager,
         sample_video_file,
         sample_video_metadata,
@@ -239,25 +235,16 @@ class TestDownloadCaching:
         """Test successful download storage."""
         video_id = sample_video_metadata.video_id
 
-        # Mock file operations
-        mock_copy2.return_value = None
-        mock_move.return_value = None
+        with patch.object(cache_manager, "_calculate_file_checksum") as mock_checksum:
+            mock_checksum.return_value = "fake_checksum_hash"
 
-        with patch.object(Path, "stat") as mock_stat:
-            mock_stat.return_value.st_size = 1024
-
-            with patch.object(
-                cache_manager, "_calculate_file_checksum"
-            ) as mock_checksum:
-                mock_checksum.return_value = "fake_checksum_hash"
-
-                result = cache_manager.store_download(
-                    video_id, sample_video_file, sample_video_metadata
-                )
+            result = cache_manager.store_download(
+                video_id, sample_video_file, sample_video_metadata
+            )
 
         assert isinstance(result, VideoFile)
         assert result.metadata == sample_video_metadata
-        assert result.file_size == 1024
+        assert result.file_size == len(b"fake video content for testing")
         assert result.checksum == "fake_checksum_hash"
 
         # Verify metadata was saved

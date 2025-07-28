@@ -50,6 +50,24 @@ A Python command-line tool that converts YouTube playlists into physical DVDs by
 - Log status of missing/private/failed videos for user visibility
 - Always use current playlist state (handle additions/removals between runs)
 
+### 7. Concurrent Script Execution
+- Support running multiple script instances concurrently for different playlists
+- Share video-level caching between script runs (yt-dlp downloads and ffmpeg conversions)
+- Use playlist-specific output directories for DVD authoring to prevent interference
+- Isolate dvdauthor and ISO creation operations per playlist to avoid conflicts
+- Implement file locking and atomic operations to prevent cache corruption
+- Allow multiple script invocations to safely share download and conversion caches
+
+### 8. Cache and Output Cleanup
+- Provide granular cleanup options for different types of cached and output data
+- Support cleaning downloads cache (yt-dlp downloaded video files)
+- Support cleaning conversions cache (ffmpeg converted video files)
+- Support cleaning DVD output directories (dvdauthor VIDEO_TS structures)
+- Support cleaning ISO files (generated ISO images)
+- Provide `--clean all` option to clean all cached and output data
+- Preserve metadata and configuration files during cleanup operations
+- Display cleanup progress and summary of freed space
+
 ## Technical Requirements
 
 ### Dependencies
@@ -108,9 +126,28 @@ python dvdmaker.py --playlist-url "PLxxx" --no-iso
 
 # Custom output and menu title
 python dvdmaker.py --playlist-url "PLxxx" --output-dir ./my-dvd --menu-title "My Collection"
+
+# Process multiple playlists concurrently (separate script invocations)
+python dvdmaker.py --playlist-url "PLxxx" &
+python dvdmaker.py --playlist-url "PLyyy" &
+python dvdmaker.py --playlist-url "PLzzz" &
+wait  # Wait for all background processes to complete
+
+# Cleanup operations
+python dvdmaker.py --clean downloads          # Clean downloaded video files
+python dvdmaker.py --clean conversions       # Clean converted video files
+python dvdmaker.py --clean dvd-output        # Clean DVD structure directories
+python dvdmaker.py --clean isos              # Clean ISO image files
+python dvdmaker.py --clean all               # Clean all cached and output data
 ```
 
 ### Options
+
+#### Main Operations
+- `--playlist-url`: YouTube playlist URL (required for DVD creation)
+- `--clean`: Clean specific data type (downloads, conversions, dvd-output, isos, all)
+
+#### DVD Creation Options
 - `--output-dir`: Specify output directory
 - `--quality`: Video quality preference
 - `--menu-title`: Custom DVD menu title
@@ -119,8 +156,12 @@ python dvdmaker.py --playlist-url "PLxxx" --output-dir ./my-dvd --menu-title "My
 - `--cache-dir`: Cache directory for downloaded/processed files
 - `--force-download`: Force re-download even if cached
 - `--force-convert`: Force re-conversion even if cached
+
+#### Tool Management
 - `--download-tools`: Download required tools to local bin directory
 - `--use-system-tools`: Use system-installed tools instead of local bin
+
+#### Logging and Output
 - `--log-level`: Set logging level (TRACE, DEBUG, INFO, WARNING, ERROR)
 - `--log-file`: Specify log file path (default: logs/dvdmaker.log)
 - `--verbose`: Enable verbose console output (equivalent to --log-level DEBUG)
@@ -203,6 +244,13 @@ dvdmaker/
 │   ├── metadata/
 │   └── filename_mapping.json
 ├── output/                    # DVD output
+│   ├── playlist_1/           # Output for first playlist
+│   │   ├── VIDEO_TS/
+│   │   └── playlist_1.iso
+│   ├── playlist_2/           # Output for second playlist
+│   │   ├── VIDEO_TS/
+│   │   └── playlist_2.iso
+│   └── ...
 ├── logs/                      # Application logs
 │   ├── dvdmaker.log           # Main application log
 │   ├── dvdmaker.log.1         # Rotated log files
@@ -218,13 +266,16 @@ dvdmaker/
 ```
 
 ### Cache Management
-- Use video ID as primary cache key
+- Use video ID as primary cache key for shared caching between script runs
 - Store file checksums for integrity verification
 - Implement atomic operations (rename from .tmp on completion)
 - Separate in-progress directory prevents incomplete files from being considered valid
 - Metadata caching reduces API calls for playlist information
 - Coordinate with yt-dlp's native cache for authentication data
 - Maintain filename mapping to avoid file duplication during ASCII normalization
+- Share download and conversion caches across concurrent script invocations
+- Use playlist-specific output directories only for DVD authoring and ISO creation
+- Implement file locking to prevent cache corruption during concurrent access
 
 ### Filename Normalization Strategy
 - Cache files retain original names with video IDs

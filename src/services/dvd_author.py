@@ -163,6 +163,46 @@ class DVDAuthor:
 
         logger.debug("DVDAuthor initialized")
 
+    def _create_playlist_output_dir(
+        self, base_output_dir: Path, playlist_id: str
+    ) -> Path:
+        """Create playlist-specific output directory for concurrent execution safety.
+
+        Args:
+            base_output_dir: Base output directory
+            playlist_id: Playlist ID to use for directory naming
+
+        Returns:
+            Path to playlist-specific output directory
+
+        Raises:
+            DVDAuthoringError: If directory creation fails
+        """
+        # Sanitize playlist ID for directory name
+        safe_playlist_id = normalize_to_ascii(playlist_id)
+        # Remove any remaining unsafe characters
+        import re
+
+        safe_playlist_id = re.sub(r'[<>:"/\\|?*\s]', "_", safe_playlist_id)
+        safe_playlist_id = safe_playlist_id.strip("_.- ")
+
+        if not safe_playlist_id:
+            safe_playlist_id = "unknown_playlist"
+
+        playlist_output_dir = base_output_dir / safe_playlist_id
+
+        try:
+            # Create playlist-specific directory
+            playlist_output_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"Created playlist output directory: {playlist_output_dir}")
+            return playlist_output_dir
+
+        except OSError as e:
+            logger.error(
+                f"Failed to create playlist output directory {playlist_output_dir}: {e}"
+            )
+            raise DVDAuthoringError(f"Failed to create output directory: {e}") from e
+
     def _report_progress(self, message: str, progress: float) -> None:
         """Report progress if callback is available.
 
@@ -179,6 +219,7 @@ class DVDAuthor:
         converted_videos: List[ConvertedVideoFile],
         menu_title: str,
         output_dir: Path,
+        playlist_id: str,
         create_iso: bool = False,
     ) -> AuthoredDVD:
         """Create DVD structure from converted videos.
@@ -186,7 +227,8 @@ class DVDAuthor:
         Args:
             converted_videos: List of converted video files
             menu_title: Title for the DVD menu
-            output_dir: Directory to create DVD structure in
+            output_dir: Base output directory
+            playlist_id: Playlist ID for creating specific output directory
             create_iso: Whether to create an ISO file
 
         Returns:
@@ -196,9 +238,12 @@ class DVDAuthor:
             DVDAuthoringError: If DVD authoring fails
             DVDCapacityExceededError: If videos exceed DVD capacity
         """
+        # Create playlist-specific output directory
+        playlist_output_dir = self._create_playlist_output_dir(output_dir, playlist_id)
+
         logger.debug(
             f"Creating DVD structure with {len(converted_videos)} videos: "
-            f"'{menu_title}'"
+            f"'{menu_title}' in {playlist_output_dir}"
         )
         self._report_progress("Preparing DVD structure", 0.0)
 
@@ -224,9 +269,9 @@ class DVDAuthor:
             # Don't raise exception - create DVD with available videos
             logger.warning("Continuing with DVD creation despite capacity warning")
 
-        # Create output directory structure
-        video_ts_dir = output_dir / "VIDEO_TS"
-        audio_ts_dir = output_dir / "AUDIO_TS"
+        # Create output directory structure within playlist directory
+        video_ts_dir = playlist_output_dir / "VIDEO_TS"
+        audio_ts_dir = playlist_output_dir / "AUDIO_TS"
 
         # Clean existing directories
         import shutil
@@ -263,7 +308,9 @@ class DVDAuthor:
             iso_file = None
             if create_iso:
                 self._report_progress("Creating ISO image", 0.9)
-                iso_file = self._create_iso(output_dir, video_ts_dir, menu_title)
+                iso_file = self._create_iso(
+                    playlist_output_dir, video_ts_dir, menu_title
+                )
                 authored_dvd.iso_file = iso_file
 
             self._report_progress("DVD creation complete", 1.0)

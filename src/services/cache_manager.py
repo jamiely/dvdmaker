@@ -8,10 +8,11 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from ..models.playlist import PlaylistMetadata
 from ..models.video import VideoFile, VideoMetadata
+from ..utils.file_lock import RetryableLock
 from ..utils.filename import FilenameMapper
 from ..utils.logging import get_logger
 
@@ -47,6 +48,9 @@ class CacheManager:
         self.downloads_in_progress_dir = self.downloads_dir / ".in-progress"
         self.converted_in_progress_dir = self.converted_dir / ".in-progress"
 
+        # Lock directory for file locking
+        self.locks_dir = cache_dir / ".locks"
+
         # Filename mapper for ASCII normalization
         self.filename_mapper = FilenameMapper(cache_dir / "filename_mapping.json")
 
@@ -68,6 +72,7 @@ class CacheManager:
             self.metadata_dir,
             self.downloads_in_progress_dir,
             self.converted_in_progress_dir,
+            self.locks_dir,
         ]
 
         for directory in directories:
@@ -81,6 +86,51 @@ class CacheManager:
                 raise RuntimeError(f"Failed to create cache directory: {e}")
 
         logger.debug("All cache directories created successfully")
+
+    def _write_json_atomically(self, file_path: Path, data: Dict[str, Any]) -> None:
+        """Write JSON data to file atomically.
+
+        Args:
+            file_path: Target file path
+            data: Data to write as JSON
+
+        Raises:
+            RuntimeError: If atomic write operation fails
+        """
+        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+
+        try:
+            with open(temp_path, "w") as f:
+                json.dump(data, f, indent=2)
+
+            # Atomic move (on most filesystems)
+            shutil.move(str(temp_path), str(file_path))
+
+            logger.trace(  # type: ignore[attr-defined]
+                f"Atomically wrote JSON to {file_path}"
+            )
+
+        except Exception as e:
+            # Clean up temp file if it exists
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+            raise RuntimeError(f"Failed to write JSON atomically to {file_path}: {e}")
+
+    def _get_lock_path(self, operation: str, video_id: str) -> Path:
+        """Get lock file path for a specific operation and video.
+
+        Args:
+            operation: Type of operation (download, convert, metadata)
+            video_id: Video ID
+
+        Returns:
+            Path to lock file
+        """
+        lock_filename = f"{operation}_{video_id}.lock"
+        return self.locks_dir / lock_filename
 
     def get_download_cache_path(self, video_id: str, format_ext: str = "mp4") -> Path:
         """Get cache path for downloaded video file.
@@ -174,11 +224,14 @@ class CacheManager:
             )
             return False
 
-        # Check if file is currently being written (in-progress)
+        # Check if file is currently being written (in-progress or locked)
         in_progress_path = self.downloads_in_progress_dir / cache_path.name
-        if in_progress_path.exists():
+        lock_path = self._get_lock_path("download", video_id)
+
+        if in_progress_path.exists() or lock_path.exists():
             logger.debug(
-                f"Download for {video_id} is in progress, treating as not cached"
+                f"Download for {video_id} is in progress or locked, "
+                "treating as not cached"
             )
             return False
 
@@ -234,11 +287,14 @@ class CacheManager:
             )
             return False
 
-        # Check if file is currently being written (in-progress)
+        # Check if file is currently being written (in-progress or locked)
         in_progress_path = self.converted_in_progress_dir / cache_path.name
-        if in_progress_path.exists():
+        lock_path = self._get_lock_path("convert", video_id)
+
+        if in_progress_path.exists() or lock_path.exists():
             logger.debug(
-                f"Conversion for {video_id} is in progress, treating as not cached"
+                f"Conversion for {video_id} is in progress or locked, "
+                "treating as not cached"
             )
             return False
 
@@ -271,79 +327,92 @@ class CacheManager:
         format_ext = source_path.suffix.lstrip(".")
         cache_path = self.get_download_cache_path(video_id, format_ext)
         in_progress_path = self.downloads_in_progress_dir / cache_path.name
+        lock_path = self._get_lock_path("download", video_id)
 
+        # Use retryable file locking to prevent concurrent access
         try:
-            # Atomic operation: copy to in-progress location first
-            logger.trace(  # type: ignore[attr-defined]
-                f"Copying {source_path} to in-progress location {in_progress_path}"
-            )
-            shutil.copy2(source_path, in_progress_path)
+            with RetryableLock(lock_path, timeout=60.0, max_retries=3, retry_delay=0.5):
+                logger.debug(f"Acquired download lock for {video_id}")
 
-            # Verify file was copied correctly
-            original_size = source_path.stat().st_size
-            copied_size = in_progress_path.stat().st_size
-
-            if original_size != copied_size:
-                logger.error(
-                    f"File copy verification failed: original {original_size} bytes, "
-                    f"copied {copied_size} bytes"
-                )
-                raise RuntimeError("File copy verification failed")
-
-            # Move to final location (atomic on most filesystems)
-            logger.trace(  # type: ignore[attr-defined]
-                f"Moving {in_progress_path} to final location {cache_path}"
-            )
-            shutil.move(str(in_progress_path), str(cache_path))
-
-            # Calculate checksum and file size
-            file_size = cache_path.stat().st_size
-            checksum = self._calculate_file_checksum(cache_path)
-
-            # Store metadata
-            metadata_dict = {
-                "video_id": metadata.video_id,
-                "title": metadata.title,
-                "duration": metadata.duration,
-                "url": metadata.url,
-                "thumbnail_url": metadata.thumbnail_url,
-                "description": metadata.description,
-                "file_size": file_size,
-                "checksum": checksum,
-                "format": format_ext,
-                "cached_at": datetime.now().isoformat(),
-            }
-
-            metadata_path = self.get_metadata_cache_path(video_id)
-            with open(metadata_path, "w") as f:
-                json.dump(metadata_dict, f, indent=2)
-
-            logger.debug(
-                f"Successfully cached download for {video_id}: {file_size} bytes, "
-                f"checksum {checksum[:8]}..."
-            )
-
-            return VideoFile(
-                metadata=metadata,
-                file_path=cache_path,
-                file_size=file_size,
-                checksum=checksum,
-                format=format_ext,
-            )
-
-        except Exception as e:
-            # Clean up in-progress file if it exists
-            if in_progress_path.exists():
                 try:
-                    in_progress_path.unlink()
+                    # Atomic operation: copy to in-progress location first
                     logger.trace(  # type: ignore[attr-defined]
-                        f"Cleaned up in-progress file: {in_progress_path}"
+                        f"Copying {source_path} to in-progress location "
+                        f"{in_progress_path}"
                     )
-                except OSError:
-                    pass
+                    shutil.copy2(source_path, in_progress_path)
 
-            logger.error(f"Failed to store download cache for {video_id}: {e}")
-            raise RuntimeError(f"Failed to store download cache: {e}")
+                    # Verify file was copied correctly
+                    original_size = source_path.stat().st_size
+                    copied_size = in_progress_path.stat().st_size
+
+                    if original_size != copied_size:
+                        logger.error(
+                            f"File copy verification failed: original {original_size} "
+                            f"bytes, copied {copied_size} bytes"
+                        )
+                        raise RuntimeError("File copy verification failed")
+
+                    # Move to final location (atomic on most filesystems)
+                    logger.trace(  # type: ignore[attr-defined]
+                        f"Moving {in_progress_path} to final location {cache_path}"
+                    )
+                    shutil.move(str(in_progress_path), str(cache_path))
+
+                    # Calculate checksum and file size
+                    file_size = cache_path.stat().st_size
+                    checksum = self._calculate_file_checksum(cache_path)
+
+                    # Store metadata atomically
+                    metadata_dict = {
+                        "video_id": metadata.video_id,
+                        "title": metadata.title,
+                        "duration": metadata.duration,
+                        "url": metadata.url,
+                        "thumbnail_url": metadata.thumbnail_url,
+                        "description": metadata.description,
+                        "file_size": file_size,
+                        "checksum": checksum,
+                        "format": format_ext,
+                        "cached_at": datetime.now().isoformat(),
+                    }
+
+                    metadata_path = self.get_metadata_cache_path(video_id)
+                    self._write_json_atomically(metadata_path, metadata_dict)
+
+                    logger.debug(
+                        f"Successfully cached download for {video_id}: {file_size} "
+                        f"bytes, checksum {checksum[:8]}..."
+                    )
+
+                    return VideoFile(
+                        metadata=metadata,
+                        file_path=cache_path,
+                        file_size=file_size,
+                        checksum=checksum,
+                        format=format_ext,
+                    )
+
+                except Exception as e:
+                    # Clean up in-progress file if it exists
+                    if in_progress_path.exists():
+                        try:
+                            in_progress_path.unlink()
+                            logger.trace(  # type: ignore[attr-defined]
+                                f"Cleaned up in-progress file: {in_progress_path}"
+                            )
+                        except OSError:
+                            pass
+
+                    logger.error(f"Failed to store download cache for {video_id}: {e}")
+                    raise RuntimeError(f"Failed to store download cache: {e}")
+
+        except (OSError, TimeoutError) as e:
+            logger.error(
+                f"Concurrent access conflict while storing download cache for "
+                f"{video_id}: {e}"
+            )
+            raise RuntimeError(f"Failed to acquire download cache lock: {e}") from e
 
     def store_converted(
         self, video_id: str, source_path: Path, original_metadata: VideoMetadata
@@ -371,61 +440,75 @@ class CacheManager:
         format_ext = source_path.suffix.lstrip(".")
         cache_path = self.get_converted_cache_path(video_id, format_ext)
         in_progress_path = self.converted_in_progress_dir / cache_path.name
+        lock_path = self._get_lock_path("convert", video_id)
 
+        # Use retryable file locking to prevent concurrent access
         try:
-            # Atomic operation: copy to in-progress location first
-            logger.trace(  # type: ignore[attr-defined]
-                f"Copying {source_path} to in-progress location {in_progress_path}"
-            )
-            shutil.copy2(source_path, in_progress_path)
+            with RetryableLock(lock_path, timeout=60.0, max_retries=3, retry_delay=0.5):
+                logger.debug(f"Acquired convert lock for {video_id}")
 
-            # Verify file was copied correctly
-            original_size = source_path.stat().st_size
-            copied_size = in_progress_path.stat().st_size
-
-            if original_size != copied_size:
-                logger.error(
-                    f"File copy verification failed: original {original_size} bytes, "
-                    f"copied {copied_size} bytes"
-                )
-                raise RuntimeError("File copy verification failed")
-
-            # Move to final location (atomic on most filesystems)
-            logger.trace(  # type: ignore[attr-defined]
-                f"Moving {in_progress_path} to final location {cache_path}"
-            )
-            shutil.move(str(in_progress_path), str(cache_path))
-
-            # Calculate checksum and file size
-            file_size = cache_path.stat().st_size
-            checksum = self._calculate_file_checksum(cache_path)
-
-            logger.debug(
-                f"Successfully cached converted file for {video_id}: "
-                f"{file_size} bytes, checksum {checksum[:8]}..."
-            )
-
-            return VideoFile(
-                metadata=original_metadata,
-                file_path=cache_path,
-                file_size=file_size,
-                checksum=checksum,
-                format=format_ext,
-            )
-
-        except Exception as e:
-            # Clean up in-progress file if it exists
-            if in_progress_path.exists():
                 try:
-                    in_progress_path.unlink()
+                    # Atomic operation: copy to in-progress location first
                     logger.trace(  # type: ignore[attr-defined]
-                        f"Cleaned up in-progress file: {in_progress_path}"
+                        f"Copying {source_path} to in-progress location "
+                        f"{in_progress_path}"
                     )
-                except OSError:
-                    pass
+                    shutil.copy2(source_path, in_progress_path)
 
-            logger.error(f"Failed to store converted cache for {video_id}: {e}")
-            raise RuntimeError(f"Failed to store converted cache: {e}")
+                    # Verify file was copied correctly
+                    original_size = source_path.stat().st_size
+                    copied_size = in_progress_path.stat().st_size
+
+                    if original_size != copied_size:
+                        logger.error(
+                            f"File copy verification failed: original {original_size} "
+                            f"bytes, copied {copied_size} bytes"
+                        )
+                        raise RuntimeError("File copy verification failed")
+
+                    # Move to final location (atomic on most filesystems)
+                    logger.trace(  # type: ignore[attr-defined]
+                        f"Moving {in_progress_path} to final location {cache_path}"
+                    )
+                    shutil.move(str(in_progress_path), str(cache_path))
+
+                    # Calculate checksum and file size
+                    file_size = cache_path.stat().st_size
+                    checksum = self._calculate_file_checksum(cache_path)
+
+                    logger.debug(
+                        f"Successfully cached converted file for {video_id}: "
+                        f"{file_size} bytes, checksum {checksum[:8]}..."
+                    )
+
+                    return VideoFile(
+                        metadata=original_metadata,
+                        file_path=cache_path,
+                        file_size=file_size,
+                        checksum=checksum,
+                        format=format_ext,
+                    )
+
+                except Exception as e:
+                    # Clean up in-progress file if it exists
+                    if in_progress_path.exists():
+                        try:
+                            in_progress_path.unlink()
+                            logger.trace(  # type: ignore[attr-defined]
+                                f"Cleaned up in-progress file: {in_progress_path}"
+                            )
+                        except OSError:
+                            pass
+
+                    logger.error(f"Failed to store converted cache for {video_id}: {e}")
+                    raise RuntimeError(f"Failed to store converted cache: {e}")
+
+        except (OSError, TimeoutError) as e:
+            logger.error(
+                f"Concurrent access conflict while storing converted cache for "
+                f"{video_id}: {e}"
+            )
+            raise RuntimeError(f"Failed to acquire conversion cache lock: {e}") from e
 
     def get_cached_download(
         self, video_id: str, format_ext: str = "mp4"
@@ -554,18 +637,35 @@ class CacheManager:
         cache_path = self.get_playlist_metadata_cache_path(
             playlist_metadata.playlist_id
         )
+        lock_path = self._get_lock_path(
+            "playlist_metadata", playlist_metadata.playlist_id
+        )
 
+        # Use retryable file locking to prevent concurrent access
         try:
-            with open(cache_path, "w") as f:
-                json.dump(metadata_dict, f, indent=2)
+            with RetryableLock(lock_path, timeout=30.0, max_retries=3, retry_delay=0.2):
+                logger.debug(
+                    f"Acquired playlist metadata lock for "
+                    f"{playlist_metadata.playlist_id}"
+                )
 
-            logger.debug(
-                f"Successfully cached playlist metadata for "
-                f"{playlist_metadata.playlist_id}"
+                try:
+                    self._write_json_atomically(cache_path, metadata_dict)
+
+                    logger.debug(
+                        f"Successfully cached playlist metadata for "
+                        f"{playlist_metadata.playlist_id}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to store playlist metadata: {e}")
+                    raise RuntimeError(f"Failed to store playlist metadata: {e}")
+
+        except (OSError, TimeoutError) as e:
+            logger.error(
+                f"Concurrent access conflict while storing playlist metadata for "
+                f"{playlist_metadata.playlist_id}: {e}"
             )
-        except OSError as e:
-            logger.error(f"Failed to store playlist metadata: {e}")
-            raise RuntimeError(f"Failed to store playlist metadata: {e}")
+            raise RuntimeError(f"Failed to acquire playlist metadata lock: {e}") from e
 
     def get_cached_playlist_metadata(
         self, playlist_id: str
@@ -626,9 +726,20 @@ class CacheManager:
         return normalized
 
     def save_filename_mapping(self) -> None:
-        """Save filename mappings to disk."""
+        """Save filename mappings to disk with file locking."""
         logger.debug("Saving filename mappings")
-        self.filename_mapper.save_mapping()
+
+        # Use retryable file locking to prevent concurrent access to filename mapping
+        lock_path = self.locks_dir / "filename_mapping.lock"
+        try:
+            with RetryableLock(lock_path, timeout=30.0, max_retries=3, retry_delay=0.2):
+                logger.debug("Acquired filename mapping lock")
+                self.filename_mapper.save_mapping()
+        except (OSError, TimeoutError) as e:
+            logger.error(
+                f"Concurrent access conflict while saving filename mapping: {e}"
+            )
+            raise RuntimeError(f"Failed to acquire filename mapping lock: {e}") from e
 
     def cleanup_cache(self, max_age_days: int = 30) -> None:
         """Clean up old cache files.

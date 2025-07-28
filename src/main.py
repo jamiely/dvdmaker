@@ -439,6 +439,7 @@ def main() -> int:
                     converted_videos=final_videos,
                     menu_title=menu_title,
                     output_dir=settings.output_dir,
+                    playlist_id=playlist.metadata.playlist_id,
                     create_iso=settings.generate_iso,
                 )
 
