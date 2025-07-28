@@ -14,6 +14,7 @@ from typing import Callable, Optional
 
 from .config.settings import Settings, load_settings
 from .services.cache_manager import CacheManager
+from .services.cleanup import CleanupManager
 from .services.converter import VideoConverter, VideoConverterError
 from .services.downloader import VideoDownloader, YtDlpError
 from .services.dvd_author import DVDAuthor, DVDAuthorError
@@ -37,11 +38,18 @@ Examples:
         """,
     )
 
-    # Required arguments
-    parser.add_argument(
+    # Main operation arguments (mutually exclusive)
+    operation_group = parser.add_mutually_exclusive_group(required=True)
+    operation_group.add_argument(
         "--playlist-url",
-        required=True,
         help="YouTube playlist URL or playlist ID",
+    )
+    operation_group.add_argument(
+        "--clean",
+        choices=["downloads", "conversions", "dvd-output", "isos", "all"],
+        help="Clean specific data type: downloads (yt-dlp cache), "
+        "conversions (ffmpeg cache), dvd-output (VIDEO_TS dirs), "
+        "isos (ISO files), or all",
     )
 
     # Directory options
@@ -159,20 +167,21 @@ def validate_arguments(args: argparse.Namespace) -> None:
             "Cannot use both --use-system-tools and --download-tools flags"
         )
 
-    # Validate playlist URL format
-    if not args.playlist_url:
-        raise ValueError("Playlist URL is required")
+    # Validate playlist URL format (only when not using --clean)
+    if not hasattr(args, "clean") or not args.clean:
+        if not args.playlist_url:
+            raise ValueError("Playlist URL is required")
 
-    # Basic URL/ID validation
-    playlist_input = args.playlist_url.strip()
-    if not (
-        playlist_input.startswith("http")
-        or playlist_input.startswith("PL")
-        or len(playlist_input) >= 10
-    ):
-        raise ValueError(
-            "Invalid playlist URL or ID. Expected a YouTube playlist URL or ID"
-        )
+        # Basic URL/ID validation
+        playlist_input = args.playlist_url.strip()
+        if not (
+            playlist_input.startswith("http")
+            or playlist_input.startswith("PL")
+            or len(playlist_input) >= 10
+        ):
+            raise ValueError(
+                "Invalid playlist URL or ID. Expected a YouTube playlist URL or ID"
+            )
 
 
 def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Settings:
@@ -296,6 +305,108 @@ def validate_tools(tool_manager: ToolManager) -> bool:
             return False
 
 
+def perform_cleanup(cleanup_type: str, settings: Settings) -> int:
+    """Perform cleanup operations.
+
+    Args:
+        cleanup_type: Type of cleanup to perform
+        settings: Application settings
+
+    Returns:
+        Exit code (0 for success, non-zero for error)
+    """
+    logger = get_logger(__name__)
+
+    try:
+        cleanup_manager = CleanupManager(
+            cache_dir=settings.cache_dir,
+            output_dir=settings.output_dir,
+            temp_dir=settings.temp_dir,
+        )
+
+        # Get preview of items to be cleaned
+        items_to_clean = cleanup_manager.get_cleanup_preview(cleanup_type)
+
+        if not items_to_clean:
+            print(f"No {cleanup_type} data found to clean.")
+            logger.info(f"No {cleanup_type} data found to clean")
+            return 0
+
+        # Show what will be cleaned
+        print(f"\n=== {cleanup_type.title()} Cleanup Preview ===")
+        print(f"The following {len(items_to_clean)} items will be removed:")
+
+        for item in items_to_clean[:10]:  # Show first 10 items
+            print(f"  - {item}")
+
+        if len(items_to_clean) > 10:
+            print(f"  ... and {len(items_to_clean) - 10} more items")
+
+        # Ask for confirmation
+        response = (
+            input(f"\nProceed with {cleanup_type} cleanup? [y/N]: ").strip().lower()
+        )
+        if response not in ("y", "yes"):
+            print("Cleanup cancelled.")
+            logger.info("Cleanup cancelled by user")
+            return 0
+
+        # Perform cleanup
+        print(f"\nCleaning {cleanup_type}...")
+        logger.info(f"Starting {cleanup_type} cleanup")
+
+        if cleanup_type == "downloads":
+            stats = cleanup_manager.clean_downloads()
+        elif cleanup_type == "conversions":
+            stats = cleanup_manager.clean_conversions()
+        elif cleanup_type == "dvd-output":
+            stats = cleanup_manager.clean_dvd_output()
+        elif cleanup_type == "isos":
+            stats = cleanup_manager.clean_isos()
+        elif cleanup_type == "all":
+            results = cleanup_manager.clean_all()
+            # Calculate totals
+            total_files = sum(stats.files_removed for stats in results.values())
+            total_dirs = sum(stats.directories_removed for stats in results.values())
+            total_size_mb = sum(stats.size_freed_mb for stats in results.values())
+            total_errors = sum(stats.errors for stats in results.values())
+
+            print("\n=== Cleanup Complete ===")
+            print(f"Files removed: {total_files}")
+            print(f"Directories removed: {total_dirs}")
+            print(f"Space freed: {total_size_mb:.1f} MB")
+            if total_errors > 0:
+                print(f"Errors encountered: {total_errors}")
+
+            logger.info(
+                f"Comprehensive cleanup complete: {total_files} files, "
+                f"{total_dirs} directories, {total_size_mb:.1f}MB freed"
+            )
+            return 0
+        else:
+            logger.error(f"Unknown cleanup type: {cleanup_type}")
+            return 1
+
+        # Display results for single cleanup type
+        print("\n=== Cleanup Complete ===")
+        print(f"Files removed: {stats.files_removed}")
+        print(f"Directories removed: {stats.directories_removed}")
+        print(f"Space freed: {stats.size_freed_mb:.1f} MB")
+        if stats.errors > 0:
+            print(f"Errors encountered: {stats.errors}")
+
+        logger.info(
+            f"{cleanup_type} cleanup complete: "
+            f"{stats.total_items_removed} items, {stats.size_freed_mb:.1f}MB freed"
+        )
+        return 0
+
+    except Exception as e:
+        logger.error(f"Cleanup failed: {e}")
+        print(f"Error: Cleanup failed - {e}")
+        return 1
+
+
 def main() -> int:
     """Main entry point for the DVD Maker CLI."""
     try:
@@ -317,6 +428,12 @@ def main() -> int:
 
         logger = get_logger(__name__)
 
+        # Branch between cleanup and DVD creation operations
+        if hasattr(args, "clean") and args.clean:
+            # Handle cleanup operation
+            return perform_cleanup(args.clean, settings)
+
+        # DVD creation operation
         with operation_context("dvd_creation", playlist_url=args.playlist_url):
             start_time = time.time()
             logger.info(f"Starting DVD creation for playlist: {args.playlist_url}")
@@ -459,22 +576,24 @@ def main() -> int:
                 f"(duration: {capacity_result.total_duration_human_readable})",
                 f"Total size: {capacity_result.total_size_gb:.2f}GB",
             ]
-            
+
             if capacity_result.has_exclusions:
                 excluded_count = len(capacity_result.excluded_videos)
                 summary_lines.append(
                     f"Videos excluded: {excluded_count} "
                     f"({capacity_result.excluded_size_gb:.2f}GB)"
                 )
-            
-            summary_lines.extend([
-                f"Total processing time: {total_time_str}",
-                f"DVD structure: {authored_dvd.video_ts_dir}",
-            ])
-            
+
+            summary_lines.extend(
+                [
+                    f"Total processing time: {total_time_str}",
+                    f"DVD structure: {authored_dvd.video_ts_dir}",
+                ]
+            )
+
             if authored_dvd.iso_file:
                 summary_lines.append(f"ISO file: {authored_dvd.iso_file}")
-            
+
             # Log and print to stdout
             for line in summary_lines:
                 logger.info(line)

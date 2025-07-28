@@ -245,6 +245,20 @@ class TestArgumentValidation:
         with pytest.raises(ValueError, match="Invalid playlist URL or ID"):
             validate_arguments(args)
 
+    def test_validate_arguments_cleanup_no_playlist_required(self):
+        """Test validation with cleanup option doesn't require playlist URL."""
+        args = argparse.Namespace(
+            clean="downloads",
+            playlist_url=None,
+            quiet=False,
+            verbose=False,
+            use_system_tools=False,
+            download_tools=False,
+        )
+
+        # Should not raise any exception
+        validate_arguments(args)
+
     def test_validate_arguments_valid_playlist_formats(self):
         """Test validation with various valid playlist formats."""
         valid_urls = [
