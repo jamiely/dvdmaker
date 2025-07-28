@@ -593,19 +593,7 @@ def main() -> int:
                     f"({capacity_result.excluded_size_gb:.2f}GB)"
                 )
 
-            # Convert absolute paths to relative paths for cleaner output
-            try:
-                dvd_path = authored_dvd.video_ts_dir.relative_to(Path.cwd())
-            except ValueError:
-                # If path is not relative to cwd, just use the directory name
-                dvd_path = authored_dvd.video_ts_dir.name
-
-            summary_lines.extend(
-                [
-                    f"Total processing time: {total_time_str}",
-                    f"DVD structure: {dvd_path}",
-                ]
-            )
+            summary_lines.append(f"Total processing time: {total_time_str}")
 
             if authored_dvd.iso_file:
                 try:
