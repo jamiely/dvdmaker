@@ -43,6 +43,17 @@ def mock_tool_manager():
     """Create mock tool manager."""
     mock = Mock(spec=ToolManager)
     mock.get_tool_path.return_value = "/usr/bin/dvdauthor"
+
+    # Mock get_tool_command to return appropriate command for each tool
+    def mock_get_tool_command(tool_name):
+        if tool_name == "dvdauthor":
+            return ["/usr/bin/dvdauthor"]
+        elif tool_name == "mkisofs":
+            return ["/usr/bin/genisoimage"]
+        else:
+            return [f"/usr/bin/{tool_name}"]
+
+    mock.get_tool_command.side_effect = mock_get_tool_command
     return mock
 
 
@@ -392,14 +403,15 @@ class TestDVDAuthor:
         with pytest.raises(DVDAuthoringError, match="dvdauthor execution failed"):
             dvd_author._run_dvdauthor(xml_file, video_ts_dir)
 
-    @patch("shutil.which")
-    def test_run_dvdauthor_tool_not_found(self, mock_which, dvd_author, tmp_path):
+    def test_run_dvdauthor_tool_not_found(self, dvd_author, tmp_path):
         """Test dvdauthor when tool is not found."""
         xml_file = tmp_path / "test.xml"
         video_ts_dir = tmp_path / "VIDEO_TS"
 
-        # Mock shutil.which to return None (tool not found)
-        mock_which.return_value = None
+        # Mock tool_manager.get_tool_command to raise exception (tool not found)
+        dvd_author.tool_manager.get_tool_command.side_effect = Exception(
+            "Tool not found"
+        )
 
         with pytest.raises(DVDAuthoringError, match="dvdauthor not found"):
             dvd_author._run_dvdauthor(xml_file, video_ts_dir)
@@ -433,16 +445,22 @@ class TestDVDAuthor:
         iso_file = dvd_author._create_iso(tmp_path, video_ts_dir, "Test DVD")
 
         assert iso_file == tmp_path / "Test_DVD.iso"
-        assert mock_subprocess.call_count == 2  # Version check + ISO creation
+        assert (
+            mock_subprocess.call_count == 1
+        )  # Only ISO creation (version check is done by ToolManager)
 
-    @patch("subprocess.run")
-    def test_create_iso_no_tool(self, mock_subprocess, dvd_author, tmp_path):
+    def test_create_iso_no_tool(self, dvd_author, tmp_path):
         """Test ISO creation when no tool is available."""
         video_ts_dir = tmp_path / "VIDEO_TS"
         video_ts_dir.mkdir()
 
-        # Mock no ISO tools available
-        mock_subprocess.side_effect = FileNotFoundError()
+        # Mock tool_manager.get_tool_command to raise exception for mkisofs
+        def mock_get_command(tool_name):
+            if tool_name == "mkisofs":
+                raise Exception("Tool not found")
+            return [f"/usr/bin/{tool_name}"]
+
+        dvd_author.tool_manager.get_tool_command.side_effect = mock_get_command
 
         with pytest.raises(DVDAuthoringError, match="No ISO creation tool found"):
             dvd_author._create_iso(tmp_path, video_ts_dir, "Test DVD")

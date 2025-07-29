@@ -38,6 +38,7 @@ def mock_tool_manager():
     tool_manager = Mock(spec=ToolManager)
     tool_manager.is_tool_available_locally.return_value = True
     tool_manager.get_tool_path.return_value = Path("/test/bin/yt-dlp")
+    tool_manager.get_tool_command.return_value = ["/test/bin/yt-dlp"]
     return tool_manager
 
 
@@ -104,36 +105,39 @@ class TestVideoDownloader:
         assert downloader.settings == mock_settings
         assert downloader.cache_manager == mock_cache_manager
         assert downloader.tool_manager == mock_tool_manager
-        assert downloader.yt_dlp_path is None
+        # yt_dlp_path is no longer stored as an attribute
 
     def test_ensure_yt_dlp_available_cached(self, downloader):
         """Test ensuring yt-dlp is available when already cached."""
-        # Set up cached path
-        downloader.yt_dlp_path = Path("/test/bin/yt-dlp")
+        # Mock tool manager to indicate yt-dlp is available locally
+        downloader.tool_manager.is_tool_available_locally.return_value = True
 
-        with patch.object(Path, "exists", return_value=True):
-            result = downloader._ensure_yt_dlp_available()
+        # Should not raise any exception
+        downloader._ensure_yt_dlp_available()
 
-        assert result == Path("/test/bin/yt-dlp")
-        downloader.tool_manager.is_tool_available_locally.assert_not_called()
+        # Verify tool manager was called correctly
+        downloader.tool_manager.is_tool_available_locally.assert_called_with("yt-dlp")
+        downloader.tool_manager.get_tool_command.assert_called_with("yt-dlp")
 
     def test_ensure_yt_dlp_available_download_needed(self, downloader):
         """Test ensuring yt-dlp is available when download is needed."""
         downloader.tool_manager.is_tool_available_locally.return_value = False
 
-        result = downloader._ensure_yt_dlp_available()
+        # Should not raise any exception
+        downloader._ensure_yt_dlp_available()
 
         downloader.tool_manager.is_tool_available_locally.assert_called_once_with(
             "yt-dlp"
         )
         downloader.tool_manager.download_tool.assert_called_once_with("yt-dlp")
-        downloader.tool_manager.get_tool_path.assert_called_once_with("yt-dlp")
-        assert result == Path("/test/bin/yt-dlp")
+        downloader.tool_manager.get_tool_command.assert_called_with("yt-dlp")
 
     def test_ensure_yt_dlp_available_failure(self, downloader):
         """Test ensuring yt-dlp available when download fails."""
         downloader.tool_manager.is_tool_available_locally.return_value = False
-        downloader.tool_manager.get_tool_path.return_value = None
+        downloader.tool_manager.get_tool_command.side_effect = Exception(
+            "Tool not found"
+        )
 
         with pytest.raises(RuntimeError, match="yt-dlp is not available"):
             downloader._ensure_yt_dlp_available()
@@ -147,8 +151,7 @@ class TestVideoDownloader:
         mock_result.stderr = ""
         mock_run.return_value = mock_result
 
-        with patch.object(downloader, "_ensure_yt_dlp_available") as mock_ensure:
-            mock_ensure.return_value = Path("/test/bin/yt-dlp")
+        with patch.object(downloader, "_ensure_yt_dlp_available"):
             result = downloader._run_yt_dlp(["--version"])
 
         assert result == mock_result
@@ -163,9 +166,7 @@ class TestVideoDownloader:
         mock_result.stderr = "Error message"
         mock_run.return_value = mock_result
 
-        with patch.object(downloader, "_ensure_yt_dlp_available") as mock_ensure:
-            mock_ensure.return_value = Path("/test/bin/yt-dlp")
-
+        with patch.object(downloader, "_ensure_yt_dlp_available"):
             with pytest.raises(YtDlpError, match="yt-dlp failed with return code 1"):
                 downloader._run_yt_dlp(["--version"])
 
@@ -174,9 +175,7 @@ class TestVideoDownloader:
         """Test yt-dlp command timeout."""
         mock_run.side_effect = subprocess.TimeoutExpired("cmd", 30)
 
-        with patch.object(downloader, "_ensure_yt_dlp_available") as mock_ensure:
-            mock_ensure.return_value = Path("/test/bin/yt-dlp")
-
+        with patch.object(downloader, "_ensure_yt_dlp_available"):
             with pytest.raises(YtDlpError, match="Command timed out"):
                 downloader._run_yt_dlp(["--version"], timeout=30)
 

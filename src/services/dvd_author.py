@@ -485,20 +485,19 @@ class DVDAuthor:
         """
         logger.debug("Running dvdauthor to create DVD structure")
 
-        import shutil
-
-        dvdauthor_path = shutil.which("dvdauthor")
-        if not dvdauthor_path:
+        try:
+            dvdauthor_cmd = self.tool_manager.get_tool_command("dvdauthor")
+        except Exception as e:
             raise DVDAuthoringError(
                 "dvdauthor not found. Please install dvdauthor:\n"
                 "  macOS: brew install dvdauthor\n"
                 "  Ubuntu/Debian: sudo apt install dvdauthor\n"
                 "  RHEL/CentOS: sudo yum install dvdauthor"
-            )
+            ) from e
 
         # Use the parent directory of VIDEO_TS as the output directory
         output_dir = video_ts_dir.parent
-        cmd = [str(dvdauthor_path), "-o", str(output_dir), "-x", str(xml_file)]
+        cmd = dvdauthor_cmd + ["-o", str(output_dir), "-x", str(xml_file)]
 
         logger.debug(f"Executing dvdauthor command: {' '.join(cmd)}")
 
@@ -567,34 +566,18 @@ class DVDAuthor:
 
         iso_file = output_dir / f"{clean_title}.iso"
 
-        # Use genisoimage or mkisofs to create ISO
-        iso_tools = ["genisoimage", "mkisofs"]
-        iso_tool = None
-
-        for tool in iso_tools:
-            try:
-                result = subprocess.run(
-                    [tool, "--version"],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                iso_tool = tool
-                logger.debug(f"Found ISO creation tool: {tool}")
-                break
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                continue
-
-        if not iso_tool:
+        # Use ToolManager to get mkisofs/genisoimage command
+        try:
+            mkisofs_cmd = self.tool_manager.get_tool_command("mkisofs")
+        except Exception as e:
             raise DVDAuthoringError(
                 "No ISO creation tool found. Please install genisoimage or mkisofs:\n"
                 "  macOS: brew install dvdrtools\n"
                 "  Ubuntu/Debian: sudo apt install genisoimage\n"
                 "  RHEL/CentOS: sudo yum install genisoimage"
-            )
+            ) from e
 
-        cmd = [
-            iso_tool,
+        cmd = mkisofs_cmd + [
             "-dvd-video",
             "-o",
             str(iso_file),

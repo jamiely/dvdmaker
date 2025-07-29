@@ -43,25 +43,18 @@ class VideoDownloader:
         self.settings = settings
         self.cache_manager = cache_manager
         self.tool_manager = tool_manager
-        self.yt_dlp_path: Optional[Path] = None
 
         logger.debug(
             f"VideoDownloader initialized with cache_dir={settings.cache_dir}, "
             f"rate_limit={settings.download_rate_limit}"
         )
 
-    def _ensure_yt_dlp_available(self) -> Path:
-        """Ensure yt-dlp is available and return its path.
-
-        Returns:
-            Path to yt-dlp executable
+    def _ensure_yt_dlp_available(self) -> None:
+        """Ensure yt-dlp is available.
 
         Raises:
             RuntimeError: If yt-dlp cannot be found or downloaded
         """
-        if self.yt_dlp_path and self.yt_dlp_path.exists():
-            return self.yt_dlp_path
-
         logger.debug("Checking yt-dlp availability")
 
         # Check if tool manager has yt-dlp available
@@ -69,13 +62,15 @@ class VideoDownloader:
             logger.info("yt-dlp not found, downloading...")
             self.tool_manager.download_tool("yt-dlp")
 
-        self.yt_dlp_path = self.tool_manager.get_tool_path("yt-dlp")
-        if not self.yt_dlp_path:
-            logger.error("Failed to get yt-dlp path after download")
-            raise RuntimeError("yt-dlp is not available and could not be downloaded")
-
-        logger.debug(f"Using yt-dlp at: {self.yt_dlp_path}")
-        return self.yt_dlp_path
+        # Verify availability by trying to get the command
+        try:
+            yt_dlp_cmd = self.tool_manager.get_tool_command("yt-dlp")
+            logger.debug(f"Using yt-dlp command: {yt_dlp_cmd}")
+        except Exception as e:
+            logger.error("Failed to get yt-dlp command after download")
+            raise RuntimeError(
+                "yt-dlp is not available and could not be downloaded"
+            ) from e
 
     def _run_yt_dlp(
         self,
@@ -96,10 +91,11 @@ class VideoDownloader:
         Raises:
             YtDlpError: If yt-dlp command fails
         """
-        yt_dlp_path = self._ensure_yt_dlp_available()
+        self._ensure_yt_dlp_available()
 
-        # Build full command
-        cmd = [str(yt_dlp_path)] + args
+        # Build full command using ToolManager
+        yt_dlp_cmd = self.tool_manager.get_tool_command("yt-dlp")
+        cmd = yt_dlp_cmd + args
 
         logger.debug(f"Executing yt-dlp command: {' '.join(cmd)}")
 

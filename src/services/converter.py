@@ -221,6 +221,20 @@ class VideoConverter:
             logger.error(f"Failed to calculate checksum for {file_path}: {e}")
             return ""
 
+    def _get_ffprobe_command(self) -> List[str]:
+        """Get ffprobe command based on the ffmpeg command.
+
+        Returns:
+            List containing ffprobe command components
+        """
+        ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
+        # Replace ffmpeg with ffprobe in the path
+        ffmpeg_path = Path(ffmpeg_cmd[0])
+        ffprobe_path = ffmpeg_path.parent / ffmpeg_path.name.replace(
+            "ffmpeg", "ffprobe"
+        )
+        return [str(ffprobe_path)]
+
     def _get_video_info(self, video_path: Path) -> Dict[str, Any]:
         """Get video information using ffprobe.
 
@@ -236,8 +250,7 @@ class VideoConverter:
         logger.debug(f"Getting video info for {video_path}")
 
         try:
-            ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
-            ffprobe_cmd = [ffmpeg_cmd[0].replace("ffmpeg", "ffprobe")]
+            ffprobe_cmd = self._get_ffprobe_command()
 
             cmd = ffprobe_cmd + [
                 "-v",
