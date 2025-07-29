@@ -605,7 +605,7 @@ def main() -> int:
                 except ValueError:
                     # If path is not relative to cwd, show the full absolute path
                     display_iso_path = iso_file_path.resolve()
-                
+
                 iso_summary_line = f"ISO file: {display_iso_path}"
                 summary_lines.append(iso_summary_line)
 

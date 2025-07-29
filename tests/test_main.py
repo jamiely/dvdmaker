@@ -677,33 +677,36 @@ class TestMainLogging:
     ):
         """Test perform_cleanup logs info messages."""
         from src.main import perform_cleanup
-        
+
         caplog.set_level("INFO")
-        
+
         # Setup mock settings
         mock_settings = Settings(
             cache_dir=Path("/tmp/cache"),
             output_dir=Path("/tmp/output"),
             temp_dir=Path("/tmp/temp"),
         )
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
-            
+
             # Test with no items to clean
             mock_cleanup_instance.get_cleanup_preview.return_value = []
-            
+
             result = perform_cleanup("downloads", mock_settings)
-            
+
             assert result == 0
-            
+
             # Check for info log messages
             info_messages = [
-                record.message for record in caplog.records 
+                record.message
+                for record in caplog.records
                 if record.levelname == "INFO" and "src.main" in record.name
             ]
-            assert any("No downloads data found to clean" in msg for msg in info_messages)
+            assert any(
+                "No downloads data found to clean" in msg for msg in info_messages
+            )
 
     @patch("src.main.load_settings")
     @patch("src.main.setup_application_logging")
@@ -713,24 +716,24 @@ class TestMainLogging:
         """Test perform_cleanup logs info messages when cleaning items."""
         from src.main import perform_cleanup
         from src.services.cleanup import CleanupStats
-        
+
         caplog.set_level("INFO")
-        
+
         mock_settings = Settings(
             cache_dir=Path("/tmp/cache"),
             output_dir=Path("/tmp/output"),
             temp_dir=Path("/tmp/temp"),
         )
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             with patch("builtins.input", return_value="y"):  # User confirms cleanup
                 mock_cleanup_instance = Mock()
                 mock_cleanup_manager.return_value = mock_cleanup_instance
-                
+
                 # Mock cleanup preview and execution
                 mock_cleanup_instance.get_cleanup_preview.return_value = [
                     "/tmp/cache/video1.mp4",
-                    "/tmp/cache/video2.mp4"
+                    "/tmp/cache/video2.mp4",
                 ]
                 # Create and populate CleanupStats
                 cleanup_stats = CleanupStats()
@@ -739,18 +742,22 @@ class TestMainLogging:
                 cleanup_stats.bytes_freed = 100.0 * 1024 * 1024  # 100MB in bytes
                 cleanup_stats.errors = 0
                 mock_cleanup_instance.clean_downloads.return_value = cleanup_stats
-                
+
                 result = perform_cleanup("downloads", mock_settings)
-                
+
                 assert result == 0
-                
+
                 # Check for info log messages
                 info_messages = [
-                    record.message for record in caplog.records 
+                    record.message
+                    for record in caplog.records
                     if record.levelname == "INFO" and "src.main" in record.name
                 ]
                 assert any("Starting downloads cleanup" in msg for msg in info_messages)
-                assert any("downloads cleanup complete: 2 items, 100.0MB freed" in msg for msg in info_messages)
+                assert any(
+                    "downloads cleanup complete: 2 items, 100.0MB freed" in msg
+                    for msg in info_messages
+                )
 
     @patch("src.main.load_settings")
     @patch("src.main.setup_application_logging")
@@ -763,40 +770,49 @@ class TestMainLogging:
     @patch("src.main.select_videos_for_dvd_capacity")
     @patch("src.main.operation_context")
     def test_main_dvd_creation_step_logging(
-        self, mock_context, mock_capacity, mock_dvd_author_cls, mock_converter_cls,
-        mock_downloader_cls, mock_tool_mgr_cls, mock_cache_mgr_cls, mock_validate,
-        mock_setup_logging, mock_load_settings, caplog
+        self,
+        mock_context,
+        mock_capacity,
+        mock_dvd_author_cls,
+        mock_converter_cls,
+        mock_downloader_cls,
+        mock_tool_mgr_cls,
+        mock_cache_mgr_cls,
+        mock_validate,
+        mock_setup_logging,
+        mock_load_settings,
+        caplog,
     ):
         """Test main function logs DVD creation step info messages."""
         caplog.set_level("INFO")
-        
+
         # Setup mocks
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_validate.return_value = True
-        
+
         # Mock context manager
         mock_context.return_value.__enter__ = Mock()
         mock_context.return_value.__exit__ = Mock()
-        
+
         # Mock playlist with videos
         mock_playlist = Mock()
         mock_playlist.get_available_videos.return_value = [Mock(), Mock()]
         mock_playlist.total_duration_human_readable = "10:30"
         mock_playlist.metadata.title = "Test Playlist"
         mock_playlist.metadata.playlist_id = "PLtest123"
-        
+
         # Mock downloader
         mock_downloader = Mock()
         mock_downloader.download_playlist.return_value = mock_playlist
         mock_downloader_cls.return_value = mock_downloader
-        
+
         # Mock converter
         mock_converter = Mock()
         mock_converted_videos = [Mock(), Mock()]
         mock_converter.convert_videos.return_value = mock_converted_videos
         mock_converter_cls.return_value = mock_converter
-        
+
         # Mock capacity selection
         mock_capacity_result = Mock()
         mock_capacity_result.has_exclusions = False
@@ -804,7 +820,7 @@ class TestMainLogging:
         mock_capacity_result.total_duration_human_readable = "10:30"
         mock_capacity_result.total_size_gb = 3.2
         mock_capacity.return_value = mock_capacity_result
-        
+
         # Mock DVD author
         mock_dvd_author = Mock()
         mock_authored_dvd = Mock()
@@ -812,26 +828,35 @@ class TestMainLogging:
         mock_authored_dvd.iso_file = "/tmp/output/test.iso"
         mock_dvd_author.create_dvd_structure.return_value = mock_authored_dvd
         mock_dvd_author_cls.return_value = mock_dvd_author
-        
+
         # Mock cache manager to return video files
         mock_cache_manager = Mock()
         mock_cache_manager.get_cached_download.return_value = Mock()
         mock_cache_mgr_cls.return_value = mock_cache_manager
-        
+
         with patch("sys.argv", ["dvdmaker", "--playlist-url", "PLtest123"]):
             result = main()
-        
+
         assert result == 0
-        
+
         # Check for step info log messages
         info_messages = [
-            record.message for record in caplog.records 
+            record.message
+            for record in caplog.records
             if record.levelname == "INFO" and "src.main" in record.name
         ]
-        
-        assert any("Starting DVD creation for playlist: PLtest123" in msg for msg in info_messages)
+
+        assert any(
+            "Starting DVD creation for playlist: PLtest123" in msg
+            for msg in info_messages
+        )
         assert any("Step 1: Downloading playlist..." in msg for msg in info_messages)
-        assert any("Downloaded 2 videos successfully (total duration: 10:30)" in msg for msg in info_messages)
-        assert any("Step 2: Converting videos to DVD format..." in msg for msg in info_messages)
+        assert any(
+            "Downloaded 2 videos successfully (total duration: 10:30)" in msg
+            for msg in info_messages
+        )
+        assert any(
+            "Step 2: Converting videos to DVD format..." in msg for msg in info_messages
+        )
         assert any("Step 2.5: Checking DVD capacity..." in msg for msg in info_messages)
         assert any("Step 3: Creating DVD structure..." in msg for msg in info_messages)

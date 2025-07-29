@@ -1001,7 +1001,7 @@ class TestToolManagerLogging:
         """Test download_file logs info messages."""
         # Set caplog to capture INFO level logs
         caplog.set_level("INFO")
-        
+
         # Mock successful download
         mock_response = MagicMock()
         mock_response.headers.get.return_value = "1024"
@@ -1009,17 +1009,21 @@ class TestToolManagerLogging:
         mock_get.return_value = mock_response
 
         destination = Path("/tmp/test_file")
-        
+
         with patch("builtins.open", mock_open()):
             self.tool_manager.download_file("http://example.com/file", destination)
 
         # Check for info log messages
         info_messages = [
-            record.message for record in caplog.records 
+            record.message
+            for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
         assert len(info_messages) >= 2
-        assert any("Downloading http://example.com/file to /tmp/test_file" in msg for msg in info_messages)
+        assert any(
+            "Downloading http://example.com/file to /tmp/test_file" in msg
+            for msg in info_messages
+        )
         assert any("Successfully downloaded test_file" in msg for msg in info_messages)
 
     @patch("src.services.tool_manager.get_download_url")
@@ -1027,38 +1031,48 @@ class TestToolManagerLogging:
     def test_download_tool_logging(self, mock_platform, mock_url, caplog):
         """Test download_tool logs info messages."""
         caplog.set_level("INFO")
-        
+
         mock_platform.return_value = True
         mock_url.return_value = "http://example.com/tool"
 
-        with patch.object(self.tool_manager, "download_file") as mock_download:
-            with patch.object(self.tool_manager, "_find_binary_in_extracted") as mock_find:
+        with patch.object(self.tool_manager, "download_file"):
+            with patch.object(self.tool_manager, "_find_binary_in_extracted"):
                 with patch("src.services.tool_manager.shutil.copy2"):
                     with patch.object(self.tool_manager, "make_executable"):
-                        with patch.object(self.tool_manager, "_validate_and_get_version") as mock_validate:
-                            with patch.object(self.tool_manager, "get_tool_versions") as mock_get_versions:
-                                with patch.object(self.tool_manager, "save_tool_versions"):
+                        with patch.object(
+                            self.tool_manager, "_validate_and_get_version"
+                        ) as mock_validate:
+                            with patch.object(
+                                self.tool_manager, "get_tool_versions"
+                            ) as mock_get_versions:
+                                with patch.object(
+                                    self.tool_manager, "save_tool_versions"
+                                ):
                                     # Setup mocks
                                     mock_validate.return_value = (True, "1.0.0")
                                     mock_get_versions.return_value = {}
-                                    
+
                                     # Test with valid tool name
                                     result = self.tool_manager.download_tool("ffmpeg")
 
         assert result is True
-        
+
         # Check for info log messages
         info_messages = [
-            record.message for record in caplog.records 
+            record.message
+            for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
         assert any("Starting download of ffmpeg" in msg for msg in info_messages)
-        assert any("Successfully downloaded and installed ffmpeg" in msg for msg in info_messages)
+        assert any(
+            "Successfully downloaded and installed ffmpeg" in msg
+            for msg in info_messages
+        )
 
     def test_ensure_tools_available_download_logging(self, caplog):
         """Test ensure_tools_available logs info messages during download."""
         caplog.set_level("INFO")
-        
+
         with patch.object(self.tool_manager, "check_tools") as mock_check:
             with patch.object(self.tool_manager, "download_tool") as mock_download:
                 with patch.object(self.tool_manager, "_invalidate_cache"):
@@ -1081,7 +1095,7 @@ class TestToolManagerLogging:
                                 "version": "4.4.0",
                                 "path": "/tmp/test_bin/ffmpeg",
                             }
-                        }
+                        },
                     ]
                     mock_download.return_value = True
 
@@ -1092,7 +1106,8 @@ class TestToolManagerLogging:
 
         # Check for info log messages
         info_messages = [
-            record.message for record in caplog.records 
+            record.message
+            for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
         assert any("Attempting to download ffmpeg" in msg for msg in info_messages)
@@ -1107,25 +1122,29 @@ class TestToolManagerLogging:
     ):
         """Test check_and_update_ytdlp logs all info messages."""
         caplog.set_level("INFO")
-        
+
         # Test scenario: yt-dlp not found locally
         mock_available.return_value = False
         mock_current.return_value = None
-        
+
         with patch.object(self.tool_manager, "download_tool") as mock_download:
             mock_download.return_value = True
-            
+
             result = self.tool_manager.check_and_update_ytdlp()
 
         assert result is True
 
         # Check for info log messages
         info_messages = [
-            record.message for record in caplog.records 
+            record.message
+            for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
         assert any("Checking for yt-dlp updates..." in msg for msg in info_messages)
-        assert any("yt-dlp not found locally, will download latest version" in msg for msg in info_messages)
+        assert any(
+            "yt-dlp not found locally, will download latest version" in msg
+            for msg in info_messages
+        )
 
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
@@ -1137,7 +1156,7 @@ class TestToolManagerLogging:
     ):
         """Test check_and_update_ytdlp logs when already up to date."""
         caplog.set_level("INFO")
-        
+
         mock_available.return_value = True
         mock_path.return_value = Path("/tmp/yt-dlp")
         mock_current.return_value = "2024.01.04"
@@ -1150,11 +1169,15 @@ class TestToolManagerLogging:
 
         # Check for info log messages
         info_messages = [
-            record.message for record in caplog.records 
+            record.message
+            for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
         assert any("Checking for yt-dlp updates..." in msg for msg in info_messages)
-        assert any("yt-dlp is already up to date (current: 2024.01.04)" in msg for msg in info_messages)
+        assert any(
+            "yt-dlp is already up to date (current: 2024.01.04)" in msg
+            for msg in info_messages
+        )
 
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
@@ -1163,18 +1186,29 @@ class TestToolManagerLogging:
     @patch.object(ToolManager, "compare_versions")
     @patch.object(ToolManager, "download_tool")
     def test_check_and_update_ytdlp_successful_update_logging(
-        self, mock_download, mock_compare, mock_latest, mock_current, mock_path, mock_available, caplog, tmp_path
+        self,
+        mock_download,
+        mock_compare,
+        mock_latest,
+        mock_current,
+        mock_path,
+        mock_available,
+        caplog,
+        tmp_path,
     ):
         """Test check_and_update_ytdlp logs successful update messages."""
         caplog.set_level("INFO")
-        
+
         # Setup mocks for successful update scenario
         current_path = tmp_path / "yt-dlp"
         current_path.write_text("old version")
-        
+
         mock_available.return_value = True
         mock_path.return_value = current_path
-        mock_current.side_effect = ["2023.12.30", "2024.01.04"]  # Before and after update
+        mock_current.side_effect = [
+            "2023.12.30",
+            "2024.01.04",
+        ]  # Before and after update
         mock_latest.return_value = "2024.01.04"
         mock_compare.return_value = True  # Update needed
         mock_download.return_value = True
@@ -1185,13 +1219,23 @@ class TestToolManagerLogging:
 
         # Check for info log messages
         info_messages = [
-            record.message for record in caplog.records 
+            record.message
+            for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
         assert any("Checking for yt-dlp updates..." in msg for msg in info_messages)
-        assert any("yt-dlp update available: 2023.12.30 -> 2024.01.04" in msg for msg in info_messages)
-        assert any("Successfully updated yt-dlp from 2023.12.30 to 2024.01.04" in msg for msg in info_messages)
-        assert any("yt-dlp update verified (new version: 2024.01.04)" in msg for msg in info_messages)
+        assert any(
+            "yt-dlp update available: 2023.12.30 -> 2024.01.04" in msg
+            for msg in info_messages
+        )
+        assert any(
+            "Successfully updated yt-dlp from 2023.12.30 to 2024.01.04" in msg
+            for msg in info_messages
+        )
+        assert any(
+            "yt-dlp update verified (new version: 2024.01.04)" in msg
+            for msg in info_messages
+        )
 
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
@@ -1200,17 +1244,25 @@ class TestToolManagerLogging:
     @patch.object(ToolManager, "compare_versions")
     @patch.object(ToolManager, "download_tool")
     def test_check_and_update_ytdlp_failed_update_with_restore_logging(
-        self, mock_download, mock_compare, mock_latest, mock_current, mock_path, mock_available, caplog, tmp_path
+        self,
+        mock_download,
+        mock_compare,
+        mock_latest,
+        mock_current,
+        mock_path,
+        mock_available,
+        caplog,
+        tmp_path,
     ):
         """Test check_and_update_ytdlp logs restore message when update fails."""
         caplog.set_level("INFO")
-        
+
         # Setup files for backup/restore scenario
         current_path = tmp_path / "yt-dlp"
         backup_path = current_path.with_suffix(".backup-2023.12.30")
         current_path.write_text("old version")
         backup_path.write_text("backup version")
-        
+
         mock_available.return_value = True
         mock_path.return_value = current_path
         mock_current.return_value = "2023.12.30"
@@ -1224,9 +1276,16 @@ class TestToolManagerLogging:
 
         # Check for info log messages
         info_messages = [
-            record.message for record in caplog.records 
+            record.message
+            for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
         assert any("Checking for yt-dlp updates..." in msg for msg in info_messages)
-        assert any("yt-dlp update available: 2023.12.30 -> 2024.01.04" in msg for msg in info_messages)
-        assert any("Restored previous yt-dlp version after failed update" in msg for msg in info_messages)
+        assert any(
+            "yt-dlp update available: 2023.12.30 -> 2024.01.04" in msg
+            for msg in info_messages
+        )
+        assert any(
+            "Restored previous yt-dlp version after failed update" in msg
+            for msg in info_messages
+        )
