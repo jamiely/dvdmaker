@@ -595,19 +595,28 @@ def main() -> int:
 
             summary_lines.append(f"Total processing time: {total_time_str}")
 
+            # Handle ISO file path separately for logging vs display
+            iso_summary_line = None
             if authored_dvd.iso_file:
+                # For display: use relative path when possible
+                iso_file_path = Path(authored_dvd.iso_file)
                 try:
-                    # Ensure iso_file is a Path object
-                    iso_file_path = Path(authored_dvd.iso_file)
-                    iso_path = iso_file_path.relative_to(Path.cwd())
+                    display_iso_path = iso_file_path.relative_to(Path.cwd())
                 except ValueError:
                     # If path is not relative to cwd, show the full absolute path
-                    iso_path = Path(authored_dvd.iso_file).resolve()
-                summary_lines.append(f"ISO file: {iso_path}")
+                    display_iso_path = iso_file_path.resolve()
+                
+                iso_summary_line = f"ISO file: {display_iso_path}"
+                summary_lines.append(iso_summary_line)
 
-            # Log to file first
+            # Log to file first (with absolute paths for ISO files)
             for line in summary_lines:
-                logger.info(line)
+                if line == iso_summary_line and authored_dvd.iso_file:
+                    # Log absolute path for ISO file
+                    absolute_iso_path = Path(authored_dvd.iso_file).resolve()
+                    logger.info(f"ISO file: {absolute_iso_path}")
+                else:
+                    logger.info(line)
 
             # Then print summary to stdout (after logging is complete)
             print()  # Add spacing
