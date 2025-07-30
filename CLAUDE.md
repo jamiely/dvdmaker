@@ -18,6 +18,7 @@ This is a Python command-line tool that converts YouTube playlists into physical
 - Testing: pytest with >90% coverage requirement
 - Use Makefile for common tasks: `make help` for available commands
 - **Important Development Note**: Whenever running make, ensure you `source venv/bin/activate` first
+- You only need to activate before running python and make commands
 
 ## File Organization
 ```

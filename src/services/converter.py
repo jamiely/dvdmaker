@@ -17,12 +17,10 @@ from ..exceptions import DVDMakerError
 from ..models.video import VideoFile, VideoMetadata
 from ..services.cache_manager import CacheManager
 from ..services.tool_manager import ToolManager
-from ..utils.logging import get_logger
+from .base import BaseService
 
 # Progress callback type
 ProgressCallback = Callable[[str, float], None]
-
-logger = get_logger(__name__)
 
 
 class VideoConverterError(DVDMakerError):
@@ -119,7 +117,7 @@ class ConvertedVideoFile:
         )
 
 
-class VideoConverter:
+class VideoConverter(BaseService):
     """Converts videos to DVD-compatible formats using ffmpeg.
 
     This class handles:
@@ -156,7 +154,7 @@ class VideoConverter:
             cache_manager: Cache manager for converted files
             progress_callback: Optional callback for progress reporting
         """
-        self.settings = settings
+        super().__init__(settings)
         self.tool_manager = tool_manager
         self.cache_manager = cache_manager
         self.progress_callback = progress_callback
@@ -168,7 +166,7 @@ class VideoConverter:
         # Metadata cache for converted files
         self.metadata_file = self.converted_cache_dir / "converted_metadata.json"
 
-        logger.debug(
+        self.logger.debug(
             f"VideoConverter initialized with cache dir: {self.converted_cache_dir}"
         )
 
@@ -184,10 +182,10 @@ class VideoConverter:
         try:
             with open(self.metadata_file, "r") as f:
                 metadata: Dict[str, Dict[str, Any]] = json.load(f)
-            logger.debug(f"Loaded converted metadata for {len(metadata)} videos")
+            self.logger.debug(f"Loaded converted metadata for {len(metadata)} videos")
             return metadata
         except (json.JSONDecodeError, IOError) as e:
-            logger.warning(f"Failed to load converted metadata: {e}")
+            self.logger.warning(f"Failed to load converted metadata: {e}")
             return {}
 
     def _save_converted_metadata(self, metadata: Dict[str, Dict[str, Any]]) -> None:
@@ -199,9 +197,9 @@ class VideoConverter:
         try:
             with open(self.metadata_file, "w") as f:
                 json.dump(metadata, f, indent=2)
-            logger.debug(f"Saved converted metadata for {len(metadata)} videos")
+            self.logger.debug(f"Saved converted metadata for {len(metadata)} videos")
         except IOError as e:
-            logger.error(f"Failed to save converted metadata: {e}")
+            self.logger.error(f"Failed to save converted metadata: {e}")
 
     def _calculate_file_checksum(self, file_path: Path) -> str:
         """Calculate SHA-256 checksum of a file.
@@ -219,7 +217,7 @@ class VideoConverter:
                     sha256_hash.update(chunk)
             return sha256_hash.hexdigest()
         except IOError as e:
-            logger.error(f"Failed to calculate checksum for {file_path}: {e}")
+            self.logger.error(f"Failed to calculate checksum for {file_path}: {e}")
             return ""
 
     def _get_ffprobe_command(self) -> List[str]:
@@ -248,7 +246,7 @@ class VideoConverter:
         Raises:
             ConversionError: If ffprobe fails
         """
-        logger.debug(f"Getting video info for {video_path}")
+        self.logger.debug(f"Getting video info for {video_path}")
 
         try:
             ffprobe_cmd = self._get_ffprobe_command()
@@ -263,21 +261,23 @@ class VideoConverter:
                 str(video_path),
             ]
 
-            logger.debug(f"Executing ffprobe command: {' '.join(cmd)}")
+            self.logger.debug(f"Executing ffprobe command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            logger.debug(f"ffprobe completed with return code {result.returncode}")
+            self.logger.debug(f"ffprobe completed with return code {result.returncode}")
 
             if result.stderr:
                 if result.returncode == 0:
-                    logger.debug(f"ffprobe stderr: {result.stderr.strip()}")
+                    self.logger.debug(f"ffprobe stderr: {result.stderr.strip()}")
                 else:
-                    logger.warning(f"ffprobe stderr: {result.stderr.strip()}")
+                    self.logger.warning(f"ffprobe stderr: {result.stderr.strip()}")
 
             if result.returncode != 0:
                 raise ConversionError(f"ffprobe failed: {result.stderr}")
 
             info: Dict[str, Any] = json.loads(result.stdout)
-            logger.debug(f"Successfully extracted video info for {video_path.name}")
+            self.logger.debug(
+                f"Successfully extracted video info for {video_path.name}"
+            )
             return info
 
         except (
@@ -285,7 +285,7 @@ class VideoConverter:
             json.JSONDecodeError,
             FileNotFoundError,
         ) as e:
-            logger.error(f"Failed to get video info for {video_path}: {e}")
+            self.logger.error(f"Failed to get video info for {video_path}: {e}")
             raise ConversionError(f"Failed to analyze video: {e}")
 
     def _determine_dvd_format(self, video_info: Dict[str, Any]) -> Tuple[str, str]:
@@ -301,13 +301,13 @@ class VideoConverter:
         video_format = self.settings.video_format.upper()
 
         if video_format == "PAL":
-            logger.debug(
+            self.logger.debug(
                 f"Using PAL format from settings: {self.PAL_RESOLUTION} at "
                 f"{self.PAL_FRAMERATE} fps"
             )
             return self.PAL_RESOLUTION, self.PAL_FRAMERATE
         else:  # Default to NTSC
-            logger.debug(
+            self.logger.debug(
                 f"Using NTSC format from settings: {self.NTSC_RESOLUTION} at "
                 f"{self.NTSC_FRAMERATE} fps"
             )
@@ -372,7 +372,7 @@ class VideoConverter:
             str(output_path),
         ]
 
-        logger.debug(f"Built conversion command: {' '.join(cmd)}")
+        self.logger.debug(f"Built conversion command: {' '.join(cmd)}")
         return cmd
 
     def _build_thumbnail_command(
@@ -406,7 +406,7 @@ class VideoConverter:
             str(output_path),
         ]
 
-        logger.debug(f"Built thumbnail command: {' '.join(cmd)}")
+        self.logger.debug(f"Built thumbnail command: {' '.join(cmd)}")
         return cmd
 
     def _run_conversion_command(
@@ -425,7 +425,7 @@ class VideoConverter:
         Raises:
             ConversionError: If command fails
         """
-        logger.debug(f"Running {operation_name}: {' '.join(cmd[:3])}...")
+        self.logger.debug(f"Running {operation_name}: {' '.join(cmd[:3])}...")
 
         try:
             process = subprocess.Popen(
@@ -486,13 +486,13 @@ class VideoConverter:
 
             if process.returncode != 0:
                 error_output = "".join(stderr_output)
-                logger.error(f"{operation_name} failed: {error_output}")
+                self.logger.error(f"{operation_name} failed: {error_output}")
                 raise ConversionError(f"{operation_name} failed: {error_output}")
 
-            logger.debug(f"{operation_name} completed successfully")
+            self.logger.debug(f"{operation_name} completed successfully")
 
         except subprocess.SubprocessError as e:
-            logger.error(f"{operation_name} failed with exception: {e}")
+            self.logger.error(f"{operation_name} failed with exception: {e}")
             raise ConversionError(f"{operation_name} failed: {e}")
 
     def is_video_converted(self, video_metadata: VideoMetadata) -> bool:
@@ -508,7 +508,7 @@ class VideoConverter:
         video_id = video_metadata.video_id
 
         if video_id not in metadata:
-            logger.debug(f"Video {video_id} not found in converted cache")
+            self.logger.debug(f"Video {video_id} not found in converted cache")
             return False
 
         video_data = metadata[video_id]
@@ -516,20 +516,20 @@ class VideoConverter:
 
         # Check if file exists and has correct size/checksum
         if not video_file.exists():
-            logger.debug(f"Converted file for {video_id} does not exist")
+            self.logger.debug(f"Converted file for {video_id} does not exist")
             return False
 
         # Verify file integrity
         actual_size = video_file.stat().st_size
         if actual_size != video_data["file_size"]:
-            logger.warning(
+            self.logger.warning(
                 f"Size mismatch for converted {video_id}: "
                 f"expected {video_data['file_size']}, got {actual_size}"
             )
             return False
 
         # Quick checksum verification might be too expensive, trust size for now
-        logger.debug(f"Video {video_id} found in converted cache and verified")
+        self.logger.debug(f"Video {video_id} found in converted cache and verified")
         return True
 
     def get_converted_video(
@@ -569,11 +569,13 @@ class VideoConverter:
             ConversionError: If conversion fails
         """
         video_id = video_file.metadata.video_id
-        logger.debug(f"Starting conversion of video {video_id}")
+        self.logger.debug(f"Starting conversion of video {video_id}")
 
         # Check cache first
         if not force_convert and self.is_video_converted(video_file.metadata):
-            logger.debug(f"Video {video_id} already converted, using cached version")
+            self.logger.debug(
+                f"Video {video_id} already converted, using cached version"
+            )
             converted = self.get_converted_video(video_file.metadata)
             if converted:
                 return converted
@@ -680,7 +682,7 @@ class VideoConverter:
             metadata[video_id] = converted_video.to_dict()
             self._save_converted_metadata(metadata)
 
-            logger.info(
+            self.logger.info(
                 f"Successfully converted {video_id}: {converted_video.size_mb:.1f}MB "
                 f"{converted_video.resolution} "
                 f"{converted_video.video_codec}/{converted_video.audio_codec}"
@@ -699,7 +701,7 @@ class VideoConverter:
                 if output_file.exists():
                     output_file.unlink()
 
-            logger.error(f"Video conversion failed for {video_id}: {e}")
+            self.logger.error(f"Video conversion failed for {video_id}: {e}")
             raise ConversionError(f"Failed to convert video {video_id}: {e}")
 
     def convert_videos(
@@ -719,7 +721,7 @@ class VideoConverter:
         Raises:
             ConversionError: If any conversion fails
         """
-        logger.debug(f"Starting batch conversion of {len(video_files)} videos")
+        self.logger.debug(f"Starting batch conversion of {len(video_files)} videos")
 
         converted_videos: List[ConvertedVideoFile] = []
         failed_conversions: List[str] = []
@@ -736,26 +738,26 @@ class VideoConverter:
                 converted_video = self.convert_video(video_file, force_convert)
                 converted_videos.append(converted_video)
 
-                logger.debug(
+                self.logger.debug(
                     f"Converted {i+1}/{len(video_files)}: "
                     f"{video_file.metadata.video_id}"
                 )
 
             except ConversionError as e:
                 error_msg = f"Failed to convert {video_file.metadata.video_id}: {e}"
-                logger.error(error_msg)
+                self.logger.error(error_msg)
                 failed_conversions.append(error_msg)
 
         if self.progress_callback:
             self.progress_callback("Video conversion complete", 100)
 
-        logger.info(
+        self.logger.info(
             f"Batch conversion complete: {len(converted_videos)} successful, "
             f"{len(failed_conversions)} failed"
         )
 
         if failed_conversions:
-            logger.warning(f"Some conversions failed: {failed_conversions}")
+            self.logger.warning(f"Some conversions failed: {failed_conversions}")
             # For now, continue with successful conversions
             # In a future version, we might want to make this configurable
 
@@ -791,7 +793,7 @@ class VideoConverter:
             "formats": formats,
         }
 
-        logger.debug(f"Conversion statistics: {stats}")
+        self.logger.debug(f"Conversion statistics: {stats}")
         return stats
 
     def cleanup_cache(self, keep_recent: int = 10) -> None:
@@ -800,12 +802,14 @@ class VideoConverter:
         Args:
             keep_recent: Number of recent conversions to keep
         """
-        logger.info(f"Cleaning up conversion cache, keeping {keep_recent} recent files")
+        self.logger.info(
+            f"Cleaning up conversion cache, keeping {keep_recent} recent files"
+        )
 
         metadata = self._load_converted_metadata()
 
         if len(metadata) <= keep_recent:
-            logger.debug("No cleanup needed")
+            self.logger.debug("No cleanup needed")
             return
 
         # Sort by modification time (we'll use video_id as a proxy for now)
@@ -824,13 +828,13 @@ class VideoConverter:
                 # Remove files
                 if video_file.exists():
                     video_file.unlink()
-                    logger.debug(f"Removed converted video: {video_file}")
+                    self.logger.debug(f"Removed converted video: {video_file}")
 
                 if thumbnail_file:
                     thumb_path = Path(thumbnail_file)
                     if thumb_path.exists():
                         thumb_path.unlink()
-                        logger.debug(f"Removed thumbnail: {thumb_path}")
+                        self.logger.debug(f"Removed thumbnail: {thumb_path}")
 
                 # Remove directory if empty
                 if video_file.parent.exists() and not any(video_file.parent.iterdir()):
@@ -840,9 +844,9 @@ class VideoConverter:
                 del metadata[video_id]
 
             except Exception as e:
-                logger.warning(f"Failed to remove {video_id} during cleanup: {e}")
+                self.logger.warning(f"Failed to remove {video_id} during cleanup: {e}")
 
         # Save updated metadata
         self._save_converted_metadata(metadata)
 
-        logger.info(f"Cleaned up {len(videos_to_remove)} old converted videos")
+        self.logger.info(f"Cleaned up {len(videos_to_remove)} old converted videos")

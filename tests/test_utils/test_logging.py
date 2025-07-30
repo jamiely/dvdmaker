@@ -2,11 +2,9 @@
 
 import json
 import logging
-import tempfile
 import threading
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -249,11 +247,12 @@ class TestJSONFormatter:
     def test_json_formatter_with_exception(self):
         """Test JSON formatting with exception information."""
         formatter = JSONFormatter(include_traceback=True)
-        
+
         try:
             raise ValueError("Test exception")
         except ValueError:
             import sys
+
             exc_info = sys.exc_info()
         else:
             exc_info = None
@@ -279,15 +278,16 @@ class TestJSONFormatter:
     def test_json_formatter_without_traceback(self):
         """Test JSON formatting without traceback."""
         formatter = JSONFormatter(include_traceback=False)
-        
+
         try:
             raise ValueError("Test exception")
         except ValueError:
             import sys
+
             exc_info = sys.exc_info()
         else:
             exc_info = None
-            
+
         record = logging.LogRecord(
             name="test",
             level=logging.ERROR,
@@ -357,11 +357,11 @@ class TestSensitiveDataFilter:
             args=(),
             exc_info=None,
         )
-        
+
         # First test that context filtering doesn't break without context attribute
         result = filter_obj.filter(record)
         assert result is True
-        
+
         # Now test with context - but this would need to be checked differently
         # since the actual filtering logic checks for specific record.context format
 
@@ -390,7 +390,7 @@ class TestSetupLogging:
     def test_setup_logging_basic(self, tmp_path):
         """Test basic logging setup."""
         log_dir = tmp_path / "logs"
-        
+
         setup_logging(log_dir)
 
         assert log_dir.exists()
@@ -399,7 +399,7 @@ class TestSetupLogging:
     def test_setup_logging_custom_file(self, tmp_path):
         """Test logging setup with custom file name."""
         log_dir = tmp_path / "logs"
-        
+
         setup_logging(log_dir, log_file="custom.log")
 
         assert log_dir.exists()
@@ -407,7 +407,7 @@ class TestSetupLogging:
     def test_setup_logging_without_console(self, tmp_path):
         """Test logging setup without console output."""
         log_dir = tmp_path / "logs"
-        
+
         setup_logging(log_dir, console_output=False)
 
         assert log_dir.exists()
@@ -415,7 +415,7 @@ class TestSetupLogging:
     def test_setup_logging_without_json(self, tmp_path):
         """Test logging setup without JSON formatting."""
         log_dir = tmp_path / "logs"
-        
+
         setup_logging(log_dir, json_format=False)
 
         assert log_dir.exists()
@@ -423,7 +423,7 @@ class TestSetupLogging:
     def test_setup_logging_trace_level(self, tmp_path):
         """Test logging setup with TRACE level."""
         log_dir = tmp_path / "logs"
-        
+
         setup_logging(log_dir, log_level="TRACE")
 
         assert log_dir.exists()
@@ -459,7 +459,7 @@ class TestContextManagement:
     def test_set_operation_context(self):
         """Test setting operation context."""
         set_operation_context("test_operation", "test_component")
-        
+
         # We can't directly test the context without using the filter
         # This tests that the function executes without error
         assert True
@@ -467,7 +467,7 @@ class TestContextManagement:
     def test_set_context(self):
         """Test setting custom context."""
         set_context(user_id="123", request_id="abc")
-        
+
         # We can't directly test the context without using the filter
         # This tests that the function executes without error
         assert True
@@ -477,9 +477,9 @@ class TestContextManagement:
         set_correlation_id("test-id")
         set_operation_context("test_op")
         set_context(user_id="123")
-        
+
         clear_context()
-        
+
         assert get_correlation_id() is None
 
 
@@ -503,7 +503,9 @@ class TestOperationContext:
 
     def test_operation_context_with_correlation_id(self):
         """Test operation context with specific correlation ID."""
-        with operation_context("test_operation", correlation_id="test-id") as correlation_id:
+        with operation_context(
+            "test_operation", correlation_id="test-id"
+        ) as correlation_id:
             assert correlation_id == "test-id"
             assert get_correlation_id() == "test-id"
 
@@ -516,10 +518,10 @@ class TestOperationContext:
     def test_operation_context_restores_previous(self):
         """Test operation context restores previous context."""
         set_correlation_id("original-id")
-        
+
         with operation_context("test_operation", correlation_id="new-id"):
             assert get_correlation_id() == "new-id"
-        
+
         assert get_correlation_id() == "original-id"
 
 
@@ -528,6 +530,7 @@ class TestTimedOperation:
 
     def test_timed_operation_basic(self, caplog):
         """Test basic timed operation."""
+
         @timed_operation()
         def test_func():
             time.sleep(0.01)
@@ -543,6 +546,7 @@ class TestTimedOperation:
 
     def test_timed_operation_with_name(self, caplog):
         """Test timed operation with custom name."""
+
         @timed_operation(operation_name="custom_operation")
         def test_func():
             return "result"
@@ -556,6 +560,7 @@ class TestTimedOperation:
 
     def test_timed_operation_with_exception(self, caplog):
         """Test timed operation with exception."""
+
         @timed_operation()
         def test_func():
             raise ValueError("Test error")
@@ -567,11 +572,10 @@ class TestTimedOperation:
         assert "Starting test_func" in caplog.text
         assert "Failed test_func" in caplog.text
 
-
     def test_timed_operation_with_custom_logger(self, caplog):
         """Test timed operation with custom logger."""
         custom_logger = logging.getLogger("custom")
-        
+
         @timed_operation(logger=custom_logger)
         def test_func():
             return "result"
@@ -587,6 +591,7 @@ class TestLoggingMixin:
 
     def test_logging_mixin_init(self):
         """Test LoggingMixin initialization."""
+
         class TestClass(LoggingMixin):
             def __init__(self):
                 super().__init__()
@@ -597,12 +602,13 @@ class TestLoggingMixin:
 
     def test_log_operation_start(self, caplog):
         """Test log_operation_start method."""
+
         class TestClass(LoggingMixin):
             def __init__(self):
                 super().__init__()
 
         obj = TestClass()
-        
+
         with caplog.at_level(logging.INFO):
             correlation_id = obj.log_operation_start("test_operation")
 
@@ -611,12 +617,13 @@ class TestLoggingMixin:
 
     def test_log_operation_complete(self, caplog):
         """Test log_operation_complete method."""
+
         class TestClass(LoggingMixin):
             def __init__(self):
                 super().__init__()
 
         obj = TestClass()
-        
+
         with caplog.at_level(logging.INFO):
             obj.log_operation_complete("test_operation", duration=1.5)
 
@@ -624,13 +631,14 @@ class TestLoggingMixin:
 
     def test_log_operation_error(self, caplog):
         """Test log_operation_error method."""
+
         class TestClass(LoggingMixin):
             def __init__(self):
                 super().__init__()
 
         obj = TestClass()
         error = ValueError("Test error")
-        
+
         with caplog.at_level(logging.ERROR):
             obj.log_operation_error("test_operation", error, duration=1.5)
 
@@ -642,6 +650,7 @@ class TestLogExternalCommand:
 
     def test_log_external_command_string(self, caplog):
         """Test logging external command with string."""
+
         @log_external_command("test command")
         def test_func():
             result = Mock()
@@ -649,13 +658,14 @@ class TestLogExternalCommand:
             return result
 
         with caplog.at_level(logging.INFO):
-            result = test_func()
+            test_func()
 
         assert "Executing command: test command" in caplog.text
         assert "Command completed successfully" in caplog.text
 
     def test_log_external_command_list(self, caplog):
         """Test logging external command with list."""
+
         @log_external_command(["test", "command", "with", "args"])
         def test_func():
             return Mock()
@@ -667,6 +677,7 @@ class TestLogExternalCommand:
 
     def test_log_external_command_with_output(self, caplog):
         """Test logging external command with output."""
+
         @log_external_command("test command", log_output=True)
         def test_func():
             result = Mock()
@@ -680,6 +691,7 @@ class TestLogExternalCommand:
 
     def test_log_external_command_with_exception(self, caplog):
         """Test logging external command with exception."""
+
         @log_external_command("test command")
         def test_func():
             raise RuntimeError("Command failed")
@@ -694,7 +706,7 @@ class TestLogExternalCommand:
     def test_log_external_command_custom_logger(self, caplog):
         """Test logging external command with custom logger."""
         custom_logger = logging.getLogger("custom")
-        
+
         @log_external_command("test command", logger=custom_logger)
         def test_func():
             return Mock()
@@ -727,21 +739,21 @@ class TestThreadSafety:
     def test_correlation_id_thread_isolation(self):
         """Test correlation IDs are isolated between threads."""
         results = {}
-        
+
         def set_and_get_correlation_id(thread_id):
-            correlation_id = set_correlation_id(f"thread-{thread_id}")
+            set_correlation_id(f"thread-{thread_id}")
             time.sleep(0.01)  # Small delay to test concurrency
             results[thread_id] = get_correlation_id()
-        
+
         threads = []
         for i in range(5):
             thread = threading.Thread(target=set_and_get_correlation_id, args=(i,))
             threads.append(thread)
             thread.start()
-        
+
         for thread in threads:
             thread.join()
-        
+
         # Each thread should have its own correlation ID
         for i in range(5):
             assert results[i] == f"thread-{i}"
@@ -749,23 +761,23 @@ class TestThreadSafety:
     def test_context_thread_isolation(self):
         """Test context is isolated between threads."""
         results = {}
-        
+
         def set_and_check_context(thread_id):
             set_context(thread_id=thread_id)
             time.sleep(0.01)
             # We can't directly check context, but we can test that
             # the function executes without interfering with other threads
             results[thread_id] = True
-        
+
         threads = []
         for i in range(3):
             thread = threading.Thread(target=set_and_check_context, args=(i,))
             threads.append(thread)
             thread.start()
-        
+
         for thread in threads:
             thread.join()
-        
+
         # All threads should complete successfully
         assert len(results) == 3
         assert all(results.values())

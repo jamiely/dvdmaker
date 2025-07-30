@@ -13,10 +13,8 @@ from ..models.playlist import Playlist, PlaylistMetadata, VideoStatus
 from ..models.video import VideoMetadata
 from ..services.cache_manager import CacheManager
 from ..services.tool_manager import ToolManager
-from ..utils.logging import get_logger
 from ..utils.progress import ProgressCallback, ProgressTracker, SilentProgressCallback
-
-logger = get_logger(__name__)
+from .base import BaseService
 
 
 class YtDlpError(DVDMakerError):
@@ -25,7 +23,7 @@ class YtDlpError(DVDMakerError):
     pass
 
 
-class VideoDownloader:
+class VideoDownloader(BaseService):
     """Downloads videos from YouTube playlists using yt-dlp."""
 
     def __init__(
@@ -41,14 +39,9 @@ class VideoDownloader:
             cache_manager: Cache manager for downloaded files
             tool_manager: Tool manager for yt-dlp binary
         """
-        self.settings = settings
+        super().__init__(settings)
         self.cache_manager = cache_manager
         self.tool_manager = tool_manager
-
-        logger.debug(
-            f"VideoDownloader initialized with cache_dir={settings.cache_dir}, "
-            f"rate_limit={settings.download_rate_limit}"
-        )
 
     def _ensure_yt_dlp_available(self) -> None:
         """Ensure yt-dlp is available.
@@ -56,19 +49,19 @@ class VideoDownloader:
         Raises:
             RuntimeError: If yt-dlp cannot be found or downloaded
         """
-        logger.debug("Checking yt-dlp availability")
+        self.logger.debug("Checking yt-dlp availability")
 
         # Check if tool manager has yt-dlp available
         if not self.tool_manager.is_tool_available_locally("yt-dlp"):
-            logger.info("yt-dlp not found, downloading...")
+            self.logger.info("yt-dlp not found, downloading...")
             self.tool_manager.download_tool("yt-dlp")
 
         # Verify availability by trying to get the command
         try:
             yt_dlp_cmd = self.tool_manager.get_tool_command("yt-dlp")
-            logger.debug(f"Using yt-dlp command: {yt_dlp_cmd}")
+            self.logger.debug(f"Using yt-dlp command: {yt_dlp_cmd}")
         except Exception as e:
-            logger.error("Failed to get yt-dlp command after download")
+            self.logger.error("Failed to get yt-dlp command after download")
             raise RuntimeError(
                 "yt-dlp is not available and could not be downloaded"
             ) from e
@@ -98,7 +91,7 @@ class VideoDownloader:
         yt_dlp_cmd = self.tool_manager.get_tool_command("yt-dlp")
         cmd = yt_dlp_cmd + args
 
-        logger.debug(f"Executing yt-dlp command: {' '.join(cmd)}")
+        self.logger.debug(f"Executing yt-dlp command: {' '.join(cmd)}")
 
         try:
             result = subprocess.run(
@@ -110,35 +103,35 @@ class VideoDownloader:
             )
 
             # Log command completion and output
-            logger.debug(f"yt-dlp completed with return code {result.returncode}")
+            self.logger.debug(f"yt-dlp completed with return code {result.returncode}")
 
             if result.stdout:
-                logger.debug(f"yt-dlp stdout: {result.stdout.strip()}")
+                self.logger.debug(f"yt-dlp stdout: {result.stdout.strip()}")
 
             if result.stderr:
                 if result.returncode == 0:
-                    logger.debug(f"yt-dlp stderr: {result.stderr.strip()}")
+                    self.logger.debug(f"yt-dlp stderr: {result.stderr.strip()}")
                 else:
-                    logger.warning(f"yt-dlp stderr: {result.stderr.strip()}")
+                    self.logger.warning(f"yt-dlp stderr: {result.stderr.strip()}")
 
             if result.returncode != 0:
                 error_msg = (
                     f"yt-dlp failed with return code {result.returncode}: "
                     f"{result.stderr if result.stderr else 'No error output'}"
                 )
-                logger.error(error_msg)
+                self.logger.error(error_msg)
                 raise YtDlpError(error_msg)
 
-            logger.trace(  # type: ignore[attr-defined]
+            self.logger.trace(  # type: ignore[attr-defined]
                 "yt-dlp command completed successfully"
             )
             return result
 
         except subprocess.TimeoutExpired as e:
-            logger.error(f"yt-dlp command timed out after {timeout}s")
+            self.logger.error(f"yt-dlp command timed out after {timeout}s")
             raise YtDlpError(f"Command timed out after {timeout}s") from e
         except OSError as e:
-            logger.error(f"Failed to execute yt-dlp: {e}")
+            self.logger.error(f"Failed to execute yt-dlp: {e}")
             raise YtDlpError(f"Failed to execute yt-dlp: {e}") from e
 
     def _get_base_yt_dlp_args(self) -> List[str]:
@@ -172,7 +165,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If playlist extraction fails
         """
-        logger.debug(f"Extracting playlist metadata from: {playlist_url}")
+        self.logger.debug(f"Extracting playlist metadata from: {playlist_url}")
 
         callback = progress_callback or SilentProgressCallback()
         tracker = ProgressTracker(1, callback, "Extracting playlist metadata...")
@@ -180,14 +173,14 @@ class VideoDownloader:
         try:
             # Extract playlist ID from URL
             playlist_id = self._extract_playlist_id(playlist_url)
-            logger.debug(f"Extracted playlist ID: {playlist_id}")
+            self.logger.debug(f"Extracted playlist ID: {playlist_id}")
 
             # Check cache first
             cached_metadata = self.cache_manager.get_cached_playlist_metadata(
                 playlist_id
             )
             if cached_metadata:
-                logger.debug(f"Using cached playlist metadata for {playlist_id}")
+                self.logger.debug(f"Using cached playlist metadata for {playlist_id}")
                 tracker.complete("Used cached playlist metadata")
                 return cached_metadata
 
@@ -220,7 +213,7 @@ class VideoDownloader:
             self.cache_manager.store_playlist_metadata(metadata)
 
             tracker.complete(f"Extracted metadata for playlist: {metadata.title}")
-            logger.info(
+            self.logger.info(
                 f"Successfully extracted playlist metadata: {metadata.title} "
                 f"({metadata.video_count} videos)"
             )
@@ -229,7 +222,7 @@ class VideoDownloader:
 
         except Exception as e:
             error_msg = f"Failed to extract playlist metadata: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             tracker.error(error_msg)
             raise YtDlpError(error_msg) from e
 
@@ -248,7 +241,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If video extraction fails
         """
-        logger.debug(f"Extracting video metadata from playlist: {playlist_url}")
+        self.logger.debug(f"Extracting video metadata from playlist: {playlist_url}")
 
         callback = progress_callback or SilentProgressCallback()
         tracker = ProgressTracker(1, callback, "Extracting video metadata...")
@@ -284,22 +277,24 @@ class VideoDownloader:
                     )
 
                     videos.append(video)
-                    logger.trace(  # type: ignore[attr-defined]
+                    self.logger.trace(  # type: ignore[attr-defined]
                         f"Extracted video {i}: {video.title} ({video.video_id})"
                     )
 
                 except (json.JSONDecodeError, ValueError) as e:
-                    logger.warning(f"Failed to parse video metadata line {i}: {e}")
+                    self.logger.warning(f"Failed to parse video metadata line {i}: {e}")
                     continue
 
             tracker.complete(f"Extracted metadata for {len(videos)} videos")
-            logger.debug(f"Successfully extracted {len(videos)} video metadata entries")
+            self.logger.debug(
+                f"Successfully extracted {len(videos)} video metadata entries"
+            )
 
             return videos
 
         except Exception as e:
             error_msg = f"Failed to extract playlist videos: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             tracker.error(error_msg)
             raise YtDlpError(error_msg) from e
 
@@ -318,7 +313,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If playlist extraction fails
         """
-        logger.debug(f"Extracting complete playlist: {playlist_url}")
+        self.logger.debug(f"Extracting complete playlist: {playlist_url}")
 
         callback = progress_callback or SilentProgressCallback()
 
@@ -331,7 +326,7 @@ class VideoDownloader:
 
             # Update metadata with actual video count
             if len(videos) != metadata.video_count:
-                logger.debug(
+                self.logger.debug(
                     f"Updating video count: {metadata.video_count} -> {len(videos)}"
                 )
                 metadata = PlaylistMetadata(
@@ -351,7 +346,7 @@ class VideoDownloader:
                 video_statuses=video_statuses,
             )
 
-            logger.info(
+            self.logger.info(
                 f"Successfully extracted complete playlist: {metadata.title} "
                 f"({len(videos)} videos)"
             )
@@ -360,7 +355,7 @@ class VideoDownloader:
 
         except Exception as e:
             error_msg = f"Failed to extract complete playlist: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             if callback:
                 callback.error(error_msg)
             raise YtDlpError(error_msg) from e
@@ -381,7 +376,7 @@ class VideoDownloader:
         Returns:
             True if download succeeded, False otherwise
         """
-        logger.info(f"Downloading video: {video.title} ({video.video_id})")
+        self.logger.info(f"Downloading video: {video.title} ({video.video_id})")
 
         callback = progress_callback or SilentProgressCallback()
         tracker = ProgressTracker(1, callback, f"Downloading: {video.title}")
@@ -393,7 +388,7 @@ class VideoDownloader:
             # Check cache first
             cached_file = self.cache_manager.get_cached_download(video.video_id)
             if cached_file:
-                logger.debug(f"Video {video.video_id} found in cache")
+                self.logger.debug(f"Video {video.video_id} found in cache")
                 playlist.update_video_status(video.video_id, VideoStatus.DOWNLOADED)
                 tracker.complete("Used cached download")
                 return True
@@ -428,7 +423,7 @@ class VideoDownloader:
                     raise YtDlpError(f"No downloaded file found for {video.video_id}")
 
                 downloaded_file = downloaded_files[0]
-                logger.debug(f"Downloaded file: {downloaded_file}")
+                self.logger.debug(f"Downloaded file: {downloaded_file}")
 
                 # Store in cache
                 cached_file = self.cache_manager.store_download(
@@ -439,7 +434,7 @@ class VideoDownloader:
                 playlist.update_video_status(video.video_id, VideoStatus.DOWNLOADED)
 
                 tracker.complete(f"Downloaded: {video.title}")
-                logger.info(
+                self.logger.info(
                     f"Successfully downloaded video: {video.title} "
                     f"({cached_file.size_mb:.1f}MB)"
                 )
@@ -447,13 +442,15 @@ class VideoDownloader:
                 return True
 
         except YtDlpError as e:
-            logger.error(f"Failed to download video {video.video_id}: {e}")
+            self.logger.error(f"Failed to download video {video.video_id}: {e}")
             playlist.update_video_status(video.video_id, VideoStatus.FAILED)
             tracker.error(f"Download failed: {str(e)}")
             return False
 
         except Exception as e:
-            logger.error(f"Unexpected error downloading video {video.video_id}: {e}")
+            self.logger.error(
+                f"Unexpected error downloading video {video.video_id}: {e}"
+            )
             playlist.update_video_status(video.video_id, VideoStatus.FAILED)
             tracker.error(f"Download failed: {str(e)}")
             return False
@@ -475,7 +472,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If playlist extraction fails
         """
-        logger.debug(f"Starting playlist download: {playlist_url}")
+        self.logger.debug(f"Starting playlist download: {playlist_url}")
 
         callback = progress_callback or SilentProgressCallback()
 
@@ -485,7 +482,7 @@ class VideoDownloader:
 
             # Check DVD capacity
             if not playlist.check_dvd_capacity():
-                logger.warning(
+                self.logger.warning(
                     f"Playlist {playlist.metadata.title} may exceed DVD capacity"
                 )
 
@@ -505,7 +502,9 @@ class VideoDownloader:
 
                 # Skip if already downloaded
                 if self.cache_manager.is_download_cached(video.video_id):
-                    logger.debug(f"Video {video.video_id} already cached, skipping")
+                    self.logger.debug(
+                        f"Video {video.video_id} already cached, skipping"
+                    )
                     playlist.update_video_status(video.video_id, VideoStatus.DOWNLOADED)
                     successful_downloads += 1
                     tracker.update(1, f"Cached: {video.title}")
@@ -523,7 +522,7 @@ class VideoDownloader:
             if successful_downloads == total_videos:
                 message = f"Downloaded all {total_videos} videos successfully"
                 tracker.complete(message)
-                logger.debug(message)
+                self.logger.debug(message)
             else:
                 failed_count = total_videos - successful_downloads
                 message = (
@@ -532,16 +531,16 @@ class VideoDownloader:
                 )
                 if successful_downloads > 0:
                     tracker.complete(message)
-                    logger.warning(message)
+                    self.logger.warning(message)
                 else:
                     tracker.error("All downloads failed")
-                    logger.error("All video downloads failed")
+                    self.logger.error("All video downloads failed")
 
             return playlist
 
         except Exception as e:
             error_msg = f"Failed to download playlist: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             if callback:
                 callback.error(error_msg)
             raise YtDlpError(error_msg) from e
@@ -569,12 +568,12 @@ class VideoDownloader:
             match = re.search(pattern, playlist_url)
             if match:
                 playlist_id = match.group(1)
-                logger.trace(  # type: ignore[attr-defined]
+                self.logger.trace(  # type: ignore[attr-defined]
                     f"Extracted playlist ID {playlist_id} from URL"
                 )
                 return playlist_id
 
-        logger.error(f"Could not extract playlist ID from URL: {playlist_url}")
+        self.logger.error(f"Could not extract playlist ID from URL: {playlist_url}")
         raise ValueError(f"Invalid YouTube playlist URL: {playlist_url}")
 
     def get_download_info(self, video_url: str) -> Dict[str, Any]:
@@ -589,7 +588,7 @@ class VideoDownloader:
         Raises:
             YtDlpError: If information extraction fails
         """
-        logger.debug(f"Getting download info for: {video_url}")
+        self.logger.debug(f"Getting download info for: {video_url}")
 
         try:
             args = self._get_base_yt_dlp_args() + [
@@ -601,7 +600,7 @@ class VideoDownloader:
             result = self._run_yt_dlp(args)
             info: Dict[str, Any] = json.loads(result.stdout.strip())
 
-            logger.trace(  # type: ignore[attr-defined]
+            self.logger.trace(  # type: ignore[attr-defined]
                 f"Retrieved download info for video: {info.get('title', 'Unknown')}"
             )
 
@@ -609,7 +608,7 @@ class VideoDownloader:
 
         except Exception as e:
             error_msg = f"Failed to get download info: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             raise YtDlpError(error_msg) from e
 
     def validate_url(self, url: str) -> bool:
@@ -623,8 +622,8 @@ class VideoDownloader:
         """
         try:
             self._extract_playlist_id(url)
-            logger.debug(f"URL validation successful: {url}")
+            self.logger.debug(f"URL validation successful: {url}")
             return True
         except ValueError:
-            logger.debug(f"URL validation failed: {url}")
+            self.logger.debug(f"URL validation failed: {url}")
             return False

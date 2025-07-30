@@ -10,16 +10,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from ..config.settings import Settings
 from ..models.playlist import PlaylistMetadata
 from ..models.video import VideoFile, VideoMetadata
 from ..utils.file_lock import RetryableLock
 from ..utils.filename import FilenameMapper
-from ..utils.logging import get_logger
-
-logger = get_logger(__name__)
+from .base import BaseService
 
 
-class CacheManager:
+class CacheManager(BaseService):
     """Manages caching of downloaded and converted video files."""
 
     def __init__(
@@ -27,6 +26,7 @@ class CacheManager:
         cache_dir: Path,
         force_download: bool = False,
         force_convert: bool = False,
+        settings: Optional[Settings] = None,
     ) -> None:
         """Initialize the cache manager.
 
@@ -34,7 +34,17 @@ class CacheManager:
             cache_dir: Base directory for cache storage
             force_download: If True, ignore download cache and re-download files
             force_convert: If True, ignore conversion cache and re-convert files
+            settings: Optional settings object for base service functionality
         """
+        # Initialize base service if settings are provided
+        if settings:
+            super().__init__(settings)
+        else:
+            # Initialize logger even without settings
+            from ..utils.logging import get_logger
+
+            self.logger = get_logger(self.__class__.__module__)
+
         self.cache_dir = cache_dir
         self.force_download = force_download
         self.force_convert = force_convert
@@ -57,7 +67,7 @@ class CacheManager:
         # Create directories
         self._create_directories()
 
-        logger.debug(
+        self.logger.debug(
             f"CacheManager initialized with cache_dir={cache_dir}, "
             f"force_download={force_download}, "
             f"force_convert={force_convert}"
@@ -78,14 +88,14 @@ class CacheManager:
         for directory in directories:
             try:
                 directory.mkdir(parents=True, exist_ok=True)
-                logger.trace(  # type: ignore[attr-defined]
+                self.logger.trace(  # type: ignore[attr-defined]
                     f"Created cache directory: {directory}"
                 )
             except OSError as e:
-                logger.error(f"Failed to create cache directory {directory}: {e}")
+                self.logger.error(f"Failed to create cache directory {directory}: {e}")
                 raise RuntimeError(f"Failed to create cache directory: {e}")
 
-        logger.debug("All cache directories created successfully")
+        self.logger.debug("All cache directories created successfully")
 
     def _write_json_atomically(self, file_path: Path, data: Dict[str, Any]) -> None:
         """Write JSON data to file atomically.
@@ -106,7 +116,7 @@ class CacheManager:
             # Atomic move (on most filesystems)
             shutil.move(str(temp_path), str(file_path))
 
-            logger.trace(  # type: ignore[attr-defined]
+            self.logger.trace(  # type: ignore[attr-defined]
                 f"Atomically wrote JSON to {file_path}"
             )
 
@@ -145,7 +155,7 @@ class CacheManager:
         cache_filename = f"{video_id}.{format_ext.lstrip('.')}"
         cache_path = self.downloads_dir / cache_filename
 
-        logger.trace(  # type: ignore[attr-defined]
+        self.logger.trace(  # type: ignore[attr-defined]
             f"Download cache path for {video_id}: {cache_path}"
         )
         return cache_path
@@ -163,7 +173,7 @@ class CacheManager:
         cache_filename = f"{video_id}.{format_ext.lstrip('.')}"
         cache_path = self.converted_dir / cache_filename
 
-        logger.trace(  # type: ignore[attr-defined]
+        self.logger.trace(  # type: ignore[attr-defined]
             f"Converted cache path for {video_id}: {cache_path}"
         )
         return cache_path
@@ -180,7 +190,7 @@ class CacheManager:
         cache_filename = f"{video_id}_metadata.json"
         cache_path = self.metadata_dir / cache_filename
 
-        logger.trace(  # type: ignore[attr-defined]
+        self.logger.trace(  # type: ignore[attr-defined]
             f"Metadata cache path for {video_id}: {cache_path}"
         )
         return cache_path
@@ -197,7 +207,7 @@ class CacheManager:
         cache_filename = f"playlist_{playlist_id}_metadata.json"
         cache_path = self.metadata_dir / cache_filename
 
-        logger.trace(  # type: ignore[attr-defined]
+        self.logger.trace(  # type: ignore[attr-defined]
             f"Playlist metadata cache path for {playlist_id}: {cache_path}"
         )
         return cache_path
@@ -213,13 +223,13 @@ class CacheManager:
             True if valid cached download exists, False otherwise
         """
         if self.force_download:
-            logger.debug(f"Forcing download for {video_id}, ignoring cache")
+            self.logger.debug(f"Forcing download for {video_id}, ignoring cache")
             return False
 
         cache_path = self.get_download_cache_path(video_id, format_ext)
 
         if not cache_path.exists():
-            logger.trace(  # type: ignore[attr-defined]
+            self.logger.trace(  # type: ignore[attr-defined]
                 f"No download cache found for {video_id}"
             )
             return False
@@ -229,7 +239,7 @@ class CacheManager:
         lock_path = self._get_lock_path("download", video_id)
 
         if in_progress_path.exists() or lock_path.exists():
-            logger.debug(
+            self.logger.debug(
                 f"Download for {video_id} is in progress or locked, "
                 "treating as not cached"
             )
@@ -247,7 +257,7 @@ class CacheManager:
                 if expected_size is not None:
                     actual_size = cache_path.stat().st_size
                     if actual_size != expected_size:
-                        logger.warning(
+                        self.logger.warning(
                             f"Download cache size mismatch for {video_id}: "
                             f"expected {expected_size}, actual {actual_size}"
                         )
@@ -257,12 +267,12 @@ class CacheManager:
                 # For now, size check is sufficient for most cases
 
             except (json.JSONDecodeError, OSError, KeyError) as e:
-                logger.warning(
+                self.logger.warning(
                     f"Failed to verify download cache integrity for {video_id}: {e}"
                 )
                 # Continue - file existence check passed
 
-        logger.debug(f"Valid download cache found for {video_id}")
+        self.logger.debug(f"Valid download cache found for {video_id}")
         return True
 
     def is_converted_cached(self, video_id: str, format_ext: str = "mpg") -> bool:
@@ -276,13 +286,13 @@ class CacheManager:
             True if valid cached conversion exists, False otherwise
         """
         if self.force_convert:
-            logger.debug(f"Forcing conversion for {video_id}, ignoring cache")
+            self.logger.debug(f"Forcing conversion for {video_id}, ignoring cache")
             return False
 
         cache_path = self.get_converted_cache_path(video_id, format_ext)
 
         if not cache_path.exists():
-            logger.trace(  # type: ignore[attr-defined]
+            self.logger.trace(  # type: ignore[attr-defined]
                 f"No converted cache found for {video_id}"
             )
             return False
@@ -292,13 +302,13 @@ class CacheManager:
         lock_path = self._get_lock_path("convert", video_id)
 
         if in_progress_path.exists() or lock_path.exists():
-            logger.debug(
+            self.logger.debug(
                 f"Conversion for {video_id} is in progress or locked, "
                 "treating as not cached"
             )
             return False
 
-        logger.debug(f"Valid converted cache found for {video_id}")
+        self.logger.debug(f"Valid converted cache found for {video_id}")
         return True
 
     def store_download(
@@ -317,10 +327,10 @@ class CacheManager:
         Raises:
             RuntimeError: If caching operation fails
         """
-        logger.info(f"Storing download cache for {video_id} from {source_path}")
+        self.logger.info(f"Storing download cache for {video_id} from {source_path}")
 
         if not source_path.exists():
-            logger.error(f"Source file does not exist: {source_path}")
+            self.logger.error(f"Source file does not exist: {source_path}")
             raise RuntimeError(f"Source file does not exist: {source_path}")
 
         # Determine format from source file
@@ -332,11 +342,11 @@ class CacheManager:
         # Use retryable file locking to prevent concurrent access
         try:
             with RetryableLock(lock_path, timeout=60.0, max_retries=3, retry_delay=0.5):
-                logger.debug(f"Acquired download lock for {video_id}")
+                self.logger.debug(f"Acquired download lock for {video_id}")
 
                 try:
                     # Atomic operation: copy to in-progress location first
-                    logger.trace(  # type: ignore[attr-defined]
+                    self.logger.trace(  # type: ignore[attr-defined]
                         f"Copying {source_path} to in-progress location "
                         f"{in_progress_path}"
                     )
@@ -347,14 +357,14 @@ class CacheManager:
                     copied_size = in_progress_path.stat().st_size
 
                     if original_size != copied_size:
-                        logger.error(
+                        self.logger.error(
                             f"File copy verification failed: original {original_size} "
                             f"bytes, copied {copied_size} bytes"
                         )
                         raise RuntimeError("File copy verification failed")
 
                     # Move to final location (atomic on most filesystems)
-                    logger.trace(  # type: ignore[attr-defined]
+                    self.logger.trace(  # type: ignore[attr-defined]
                         f"Moving {in_progress_path} to final location {cache_path}"
                     )
                     shutil.move(str(in_progress_path), str(cache_path))
@@ -380,7 +390,7 @@ class CacheManager:
                     metadata_path = self.get_metadata_cache_path(video_id)
                     self._write_json_atomically(metadata_path, metadata_dict)
 
-                    logger.debug(
+                    self.logger.debug(
                         f"Successfully cached download for {video_id}: {file_size} "
                         f"bytes, checksum {checksum[:8]}..."
                     )
@@ -398,17 +408,19 @@ class CacheManager:
                     if in_progress_path.exists():
                         try:
                             in_progress_path.unlink()
-                            logger.trace(  # type: ignore[attr-defined]
+                            self.logger.trace(  # type: ignore[attr-defined]
                                 f"Cleaned up in-progress file: {in_progress_path}"
                             )
                         except OSError:
                             pass
 
-                    logger.error(f"Failed to store download cache for {video_id}: {e}")
+                    self.logger.error(
+                        f"Failed to store download cache for {video_id}: {e}"
+                    )
                     raise RuntimeError(f"Failed to store download cache: {e}")
 
         except (OSError, TimeoutError) as e:
-            logger.error(
+            self.logger.error(
                 f"Concurrent access conflict while storing download cache for "
                 f"{video_id}: {e}"
             )
@@ -430,10 +442,10 @@ class CacheManager:
         Raises:
             RuntimeError: If caching operation fails
         """
-        logger.info(f"Storing converted cache for {video_id} from {source_path}")
+        self.logger.info(f"Storing converted cache for {video_id} from {source_path}")
 
         if not source_path.exists():
-            logger.error(f"Source file does not exist: {source_path}")
+            self.logger.error(f"Source file does not exist: {source_path}")
             raise RuntimeError(f"Source file does not exist: {source_path}")
 
         # Determine format from source file
@@ -445,11 +457,11 @@ class CacheManager:
         # Use retryable file locking to prevent concurrent access
         try:
             with RetryableLock(lock_path, timeout=60.0, max_retries=3, retry_delay=0.5):
-                logger.debug(f"Acquired convert lock for {video_id}")
+                self.logger.debug(f"Acquired convert lock for {video_id}")
 
                 try:
                     # Atomic operation: copy to in-progress location first
-                    logger.trace(  # type: ignore[attr-defined]
+                    self.logger.trace(  # type: ignore[attr-defined]
                         f"Copying {source_path} to in-progress location "
                         f"{in_progress_path}"
                     )
@@ -460,14 +472,14 @@ class CacheManager:
                     copied_size = in_progress_path.stat().st_size
 
                     if original_size != copied_size:
-                        logger.error(
+                        self.logger.error(
                             f"File copy verification failed: original {original_size} "
                             f"bytes, copied {copied_size} bytes"
                         )
                         raise RuntimeError("File copy verification failed")
 
                     # Move to final location (atomic on most filesystems)
-                    logger.trace(  # type: ignore[attr-defined]
+                    self.logger.trace(  # type: ignore[attr-defined]
                         f"Moving {in_progress_path} to final location {cache_path}"
                     )
                     shutil.move(str(in_progress_path), str(cache_path))
@@ -476,7 +488,7 @@ class CacheManager:
                     file_size = cache_path.stat().st_size
                     checksum = self._calculate_file_checksum(cache_path)
 
-                    logger.debug(
+                    self.logger.debug(
                         f"Successfully cached converted file for {video_id}: "
                         f"{file_size} bytes, checksum {checksum[:8]}..."
                     )
@@ -494,17 +506,19 @@ class CacheManager:
                     if in_progress_path.exists():
                         try:
                             in_progress_path.unlink()
-                            logger.trace(  # type: ignore[attr-defined]
+                            self.logger.trace(  # type: ignore[attr-defined]
                                 f"Cleaned up in-progress file: {in_progress_path}"
                             )
                         except OSError:
                             pass
 
-                    logger.error(f"Failed to store converted cache for {video_id}: {e}")
+                    self.logger.error(
+                        f"Failed to store converted cache for {video_id}: {e}"
+                    )
                     raise RuntimeError(f"Failed to store converted cache: {e}")
 
         except (OSError, TimeoutError) as e:
-            logger.error(
+            self.logger.error(
                 f"Concurrent access conflict while storing converted cache for "
                 f"{video_id}: {e}"
             )
@@ -550,11 +564,13 @@ class CacheManager:
                 format=metadata_dict["format"],
             )
 
-            logger.debug(f"Retrieved cached download for {video_id}")
+            self.logger.debug(f"Retrieved cached download for {video_id}")
             return video_file
 
         except (json.JSONDecodeError, KeyError, OSError) as e:
-            logger.warning(f"Failed to retrieve cached download for {video_id}: {e}")
+            self.logger.warning(
+                f"Failed to retrieve cached download for {video_id}: {e}"
+            )
             return None
 
     def get_cached_converted(
@@ -577,7 +593,7 @@ class CacheManager:
         # Get original metadata from download cache
         metadata_path = self.get_metadata_cache_path(video_id)
         if not metadata_path.exists():
-            logger.warning(
+            self.logger.warning(
                 f"No metadata found for converted file {video_id}, cannot retrieve"
             )
             return None
@@ -608,11 +624,11 @@ class CacheManager:
                 format=format_ext,
             )
 
-            logger.debug(f"Retrieved cached converted file for {video_id}")
+            self.logger.debug(f"Retrieved cached converted file for {video_id}")
             return video_file
 
         except (json.JSONDecodeError, KeyError, OSError) as e:
-            logger.warning(
+            self.logger.warning(
                 f"Failed to retrieve cached converted file for {video_id}: {e}"
             )
             return None
@@ -623,7 +639,9 @@ class CacheManager:
         Args:
             playlist_metadata: Playlist metadata to cache
         """
-        logger.debug(f"Storing playlist metadata for {playlist_metadata.playlist_id}")
+        self.logger.debug(
+            f"Storing playlist metadata for {playlist_metadata.playlist_id}"
+        )
 
         metadata_dict = {
             "playlist_id": playlist_metadata.playlist_id,
@@ -644,7 +662,7 @@ class CacheManager:
         # Use retryable file locking to prevent concurrent access
         try:
             with RetryableLock(lock_path, timeout=30.0, max_retries=3, retry_delay=0.2):
-                logger.debug(
+                self.logger.debug(
                     f"Acquired playlist metadata lock for "
                     f"{playlist_metadata.playlist_id}"
                 )
@@ -652,16 +670,16 @@ class CacheManager:
                 try:
                     self._write_json_atomically(cache_path, metadata_dict)
 
-                    logger.debug(
+                    self.logger.debug(
                         f"Successfully cached playlist metadata for "
                         f"{playlist_metadata.playlist_id}"
                     )
                 except Exception as e:
-                    logger.error(f"Failed to store playlist metadata: {e}")
+                    self.logger.error(f"Failed to store playlist metadata: {e}")
                     raise RuntimeError(f"Failed to store playlist metadata: {e}")
 
         except (OSError, TimeoutError) as e:
-            logger.error(
+            self.logger.error(
                 f"Concurrent access conflict while storing playlist metadata for "
                 f"{playlist_metadata.playlist_id}: {e}"
             )
@@ -681,7 +699,7 @@ class CacheManager:
         cache_path = self.get_playlist_metadata_cache_path(playlist_id)
 
         if not cache_path.exists():
-            logger.trace(  # type: ignore[attr-defined]
+            self.logger.trace(  # type: ignore[attr-defined]
                 f"No cached playlist metadata found for {playlist_id}"
             )
             return None
@@ -698,11 +716,11 @@ class CacheManager:
                 total_size_estimate=metadata_dict.get("total_size_estimate"),
             )
 
-            logger.debug(f"Retrieved cached playlist metadata for {playlist_id}")
+            self.logger.debug(f"Retrieved cached playlist metadata for {playlist_id}")
             return playlist_metadata
 
         except (json.JSONDecodeError, KeyError, OSError) as e:
-            logger.warning(
+            self.logger.warning(
                 f"Failed to retrieve cached playlist metadata for {playlist_id}: {e}"
             )
             return None
@@ -720,23 +738,23 @@ class CacheManager:
         normalized = self.filename_mapper.get_normalized_filename(
             video_id, original_title
         )
-        logger.trace(  # type: ignore[attr-defined]
+        self.logger.trace(  # type: ignore[attr-defined]
             f"Normalized filename for {video_id}: {normalized}"
         )
         return normalized
 
     def save_filename_mapping(self) -> None:
         """Save filename mappings to disk with file locking."""
-        logger.debug("Saving filename mappings")
+        self.logger.debug("Saving filename mappings")
 
         # Use retryable file locking to prevent concurrent access to filename mapping
         lock_path = self.locks_dir / "filename_mapping.lock"
         try:
             with RetryableLock(lock_path, timeout=30.0, max_retries=3, retry_delay=0.2):
-                logger.debug("Acquired filename mapping lock")
+                self.logger.debug("Acquired filename mapping lock")
                 self.filename_mapper.save_mapping()
         except (OSError, TimeoutError) as e:
-            logger.error(
+            self.logger.error(
                 f"Concurrent access conflict while saving filename mapping: {e}"
             )
             raise RuntimeError(f"Failed to acquire filename mapping lock: {e}") from e
@@ -747,7 +765,7 @@ class CacheManager:
         Args:
             max_age_days: Maximum age in days for cache files
         """
-        logger.info(f"Starting cache cleanup (max_age_days={max_age_days})")
+        self.logger.info(f"Starting cache cleanup (max_age_days={max_age_days})")
 
         from datetime import timedelta
 
@@ -766,13 +784,13 @@ class CacheManager:
                             file_path.unlink()
                             cleaned_files += 1
                             total_size_freed += file_size
-                            logger.trace(  # type: ignore[attr-defined]
+                            self.logger.trace(  # type: ignore[attr-defined]
                                 f"Cleaned up old cache file: {file_path}"
                             )
                     except OSError as e:
-                        logger.warning(f"Failed to clean up {file_path}: {e}")
+                        self.logger.warning(f"Failed to clean up {file_path}: {e}")
 
-        logger.info(
+        self.logger.info(
             f"Cache cleanup completed: {cleaned_files} files removed, "
             f"{total_size_freed / (1024*1024):.1f} MB freed"
         )
@@ -809,7 +827,7 @@ class CacheManager:
                         except OSError:
                             pass
 
-        logger.debug(f"Cache statistics: {stats}")
+        self.logger.debug(f"Cache statistics: {stats}")
         return stats
 
     def _calculate_file_checksum(self, file_path: Path) -> str:
@@ -823,7 +841,7 @@ class CacheManager:
         """
         import hashlib
 
-        logger.trace(  # type: ignore[attr-defined]
+        self.logger.trace(  # type: ignore[attr-defined]
             f"Calculating checksum for {file_path}"
         )
 
@@ -836,11 +854,11 @@ class CacheManager:
                     sha256_hash.update(chunk)
 
             checksum = sha256_hash.hexdigest()
-            logger.trace(  # type: ignore[attr-defined]
+            self.logger.trace(  # type: ignore[attr-defined]
                 f"Checksum for {file_path}: {checksum[:8]}..."
             )
             return checksum
 
         except OSError as e:
-            logger.error(f"Failed to calculate checksum for {file_path}: {e}")
+            self.logger.error(f"Failed to calculate checksum for {file_path}: {e}")
             raise RuntimeError(f"Failed to calculate checksum: {e}")

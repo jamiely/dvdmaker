@@ -868,7 +868,7 @@ class TestCreateProgressCallback:
     def test_create_progress_callback_not_quiet(self):
         """Test creating progress callback when not quiet."""
         from src.main import create_progress_callback
-        
+
         callback = create_progress_callback(quiet=False)
         assert callback is not None
         assert callable(callback)
@@ -876,21 +876,21 @@ class TestCreateProgressCallback:
     def test_create_progress_callback_quiet(self):
         """Test creating progress callback when quiet."""
         from src.main import create_progress_callback
-        
+
         callback = create_progress_callback(quiet=True)
         assert callback is None
 
     def test_progress_callback_functionality(self, capsys):
         """Test progress callback functionality."""
         from src.main import create_progress_callback
-        
+
         callback = create_progress_callback(quiet=False)
-        
+
         # Test positive progress
         callback("Test operation", 50.5)
         captured = capsys.readouterr()
         assert "Test operation: 50.5%" in captured.out
-        
+
         # Test negative progress (new line)
         callback("Test operation", -1.0)
         captured = capsys.readouterr()
@@ -904,12 +904,12 @@ class TestSetupApplicationLogging:
     def test_setup_application_logging_with_log_file(self, mock_setup_logging):
         """Test setup_application_logging with custom log file."""
         from src.main import setup_application_logging
-        
+
         settings = Settings()
         log_file = Path("/custom/log/path.log")
-        
+
         setup_application_logging(settings, log_file)
-        
+
         mock_setup_logging.assert_called_once_with(
             log_dir=settings.log_dir,
             log_level=settings.get_effective_log_level(),
@@ -923,11 +923,11 @@ class TestSetupApplicationLogging:
     def test_setup_application_logging_default_log_file(self, mock_setup_logging):
         """Test setup_application_logging with default log file."""
         from src.main import setup_application_logging
-        
+
         settings = Settings()
-        
+
         setup_application_logging(settings, None)
-        
+
         mock_setup_logging.assert_called_once_with(
             log_dir=settings.log_dir,
             log_level=settings.get_effective_log_level(),
@@ -945,13 +945,13 @@ class TestYtDlpUpdateCheck:
     def test_validate_tools_ytdlp_update_success(self, mock_logger):
         """Test validate_tools with successful yt-dlp update."""
         from src.main import validate_tools
-        
+
         mock_tool_manager = Mock()
         mock_tool_manager.check_and_update_ytdlp.return_value = True
         mock_tool_manager.ensure_tools_available.return_value = (True, [])
-        
+
         result = validate_tools(mock_tool_manager)
-        
+
         assert result is True
         mock_tool_manager.check_and_update_ytdlp.assert_called_once()
 
@@ -959,13 +959,13 @@ class TestYtDlpUpdateCheck:
     def test_validate_tools_ytdlp_update_failure(self, mock_logger):
         """Test validate_tools with failed yt-dlp update but continue."""
         from src.main import validate_tools
-        
+
         mock_tool_manager = Mock()
         mock_tool_manager.check_and_update_ytdlp.return_value = False
         mock_tool_manager.ensure_tools_available.return_value = (True, [])
-        
+
         result = validate_tools(mock_tool_manager)
-        
+
         assert result is True
         mock_tool_manager.check_and_update_ytdlp.assert_called_once()
 
@@ -977,17 +977,20 @@ class TestPerformCleanupAdvanced:
     def test_perform_cleanup_user_cancellation(self, mock_logger):
         """Test perform_cleanup when user cancels."""
         from src.main import perform_cleanup
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
-            mock_cleanup_instance.get_cleanup_preview.return_value = ["/tmp/file1", "/tmp/file2"]
-            
+            mock_cleanup_instance.get_cleanup_preview.return_value = [
+                "/tmp/file1",
+                "/tmp/file2",
+            ]
+
             with patch("builtins.input", return_value="n"):  # User cancels
                 result = perform_cleanup("downloads", settings)
-                
+
                 assert result == 0
                 mock_cleanup_instance.clean_downloads.assert_not_called()
 
@@ -995,20 +998,22 @@ class TestPerformCleanupAdvanced:
     def test_perform_cleanup_many_items_preview(self, mock_logger, capsys):
         """Test perform_cleanup with many items (>10) for preview truncation."""
         from src.main import perform_cleanup
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
-            
+
             # Create 15 items to test truncation at 10
             items = [f"/tmp/file{i}.mp4" for i in range(15)]
             mock_cleanup_instance.get_cleanup_preview.return_value = items
-            
-            with patch("builtins.input", return_value="n"):  # User cancels to avoid actual cleanup
-                result = perform_cleanup("downloads", settings)
-                
+
+            with patch(
+                "builtins.input", return_value="n"
+            ):  # User cancels to avoid actual cleanup
+                perform_cleanup("downloads", settings)
+
                 captured = capsys.readouterr()
                 assert "... and 5 more items" in captured.out
 
@@ -1017,35 +1022,35 @@ class TestPerformCleanupAdvanced:
         """Test perform_cleanup with 'all' cleanup type."""
         from src.main import perform_cleanup
         from src.services.cleanup import CleanupStats
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
             mock_cleanup_instance.get_cleanup_preview.return_value = ["/tmp/file1"]
-            
+
             # Mock clean_all results
             stats1 = CleanupStats()
             stats1.files_removed = 2
             stats1.directories_removed = 1
             stats1.bytes_freed = 50 * 1024 * 1024  # 50MB
             stats1.errors = 0
-            
+
             stats2 = CleanupStats()
             stats2.files_removed = 3
             stats2.directories_removed = 2
             stats2.bytes_freed = 100 * 1024 * 1024  # 100MB
             stats2.errors = 1
-            
+
             mock_cleanup_instance.clean_all.return_value = {
                 "downloads": stats1,
                 "conversions": stats2,
             }
-            
+
             with patch("builtins.input", return_value="y"):
                 result = perform_cleanup("all", settings)
-                
+
                 assert result == 0
                 mock_cleanup_instance.clean_all.assert_called_once()
 
@@ -1053,29 +1058,29 @@ class TestPerformCleanupAdvanced:
     def test_perform_cleanup_invalid_type(self, mock_logger):
         """Test perform_cleanup with invalid cleanup type."""
         from src.main import perform_cleanup
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
             mock_cleanup_instance.get_cleanup_preview.return_value = ["/tmp/file1"]
-            
+
             with patch("builtins.input", return_value="y"):
                 result = perform_cleanup("invalid_type", settings)
-                
+
                 assert result == 1
 
     @patch("src.main.get_logger")
     def test_perform_cleanup_exception(self, mock_logger):
         """Test perform_cleanup with exception during cleanup."""
         from src.main import perform_cleanup
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager", side_effect=Exception("Cleanup error")):
             result = perform_cleanup("downloads", settings)
-            
+
             assert result == 1
 
     @patch("src.main.get_logger")
@@ -1083,14 +1088,14 @@ class TestPerformCleanupAdvanced:
         """Test perform_cleanup displaying errors count."""
         from src.main import perform_cleanup
         from src.services.cleanup import CleanupStats
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
             mock_cleanup_instance.get_cleanup_preview.return_value = ["/tmp/file1"]
-            
+
             # Create stats with errors
             cleanup_stats = CleanupStats()
             cleanup_stats.files_removed = 1
@@ -1098,10 +1103,10 @@ class TestPerformCleanupAdvanced:
             cleanup_stats.bytes_freed = 50 * 1024 * 1024  # 50MB
             cleanup_stats.errors = 2
             mock_cleanup_instance.clean_downloads.return_value = cleanup_stats
-            
+
             with patch("builtins.input", return_value="y"):
                 result = perform_cleanup("downloads", settings)
-                
+
                 assert result == 0
                 captured = capsys.readouterr()
                 assert "Errors encountered: 2" in captured.out
@@ -1111,24 +1116,24 @@ class TestPerformCleanupAdvanced:
         """Test perform_cleanup with 'conversions' cleanup type."""
         from src.main import perform_cleanup
         from src.services.cleanup import CleanupStats
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
             mock_cleanup_instance.get_cleanup_preview.return_value = ["/tmp/file1"]
-            
+
             cleanup_stats = CleanupStats()
             cleanup_stats.files_removed = 5
             cleanup_stats.directories_removed = 1
             cleanup_stats.bytes_freed = 200 * 1024 * 1024  # 200MB
             cleanup_stats.errors = 0
             mock_cleanup_instance.clean_conversions.return_value = cleanup_stats
-            
+
             with patch("builtins.input", return_value="y"):
                 result = perform_cleanup("conversions", settings)
-                
+
                 assert result == 0
                 mock_cleanup_instance.clean_conversions.assert_called_once()
 
@@ -1137,24 +1142,24 @@ class TestPerformCleanupAdvanced:
         """Test perform_cleanup with 'dvd-output' cleanup type."""
         from src.main import perform_cleanup
         from src.services.cleanup import CleanupStats
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
             mock_cleanup_instance.get_cleanup_preview.return_value = ["/tmp/file1"]
-            
+
             cleanup_stats = CleanupStats()
             cleanup_stats.files_removed = 8
             cleanup_stats.directories_removed = 2
             cleanup_stats.bytes_freed = 500 * 1024 * 1024  # 500MB
             cleanup_stats.errors = 0
             mock_cleanup_instance.clean_dvd_output.return_value = cleanup_stats
-            
+
             with patch("builtins.input", return_value="y"):
                 result = perform_cleanup("dvd-output", settings)
-                
+
                 assert result == 0
                 mock_cleanup_instance.clean_dvd_output.assert_called_once()
 
@@ -1163,24 +1168,24 @@ class TestPerformCleanupAdvanced:
         """Test perform_cleanup with 'isos' cleanup type."""
         from src.main import perform_cleanup
         from src.services.cleanup import CleanupStats
-        
+
         settings = Settings()
-        
+
         with patch("src.main.CleanupManager") as mock_cleanup_manager:
             mock_cleanup_instance = Mock()
             mock_cleanup_manager.return_value = mock_cleanup_instance
             mock_cleanup_instance.get_cleanup_preview.return_value = ["/tmp/file1"]
-            
+
             cleanup_stats = CleanupStats()
             cleanup_stats.files_removed = 3
             cleanup_stats.directories_removed = 0
             cleanup_stats.bytes_freed = 1024 * 1024 * 1024  # 1GB
             cleanup_stats.errors = 0
             mock_cleanup_instance.clean_isos.return_value = cleanup_stats
-            
+
             with patch("builtins.input", return_value="y"):
                 result = perform_cleanup("isos", settings)
-                
+
                 assert result == 0
                 mock_cleanup_instance.clean_isos.assert_called_once()
 
@@ -1195,25 +1200,30 @@ class TestMainErrorHandling:
     @patch("src.main.ToolManager")
     @patch("src.main.VideoDownloader")
     def test_main_no_available_videos(
-        self, mock_downloader_cls, mock_tool_mgr_cls, mock_cache_mgr_cls,
-        mock_validate, mock_load_settings, mock_setup_logging
+        self,
+        mock_downloader_cls,
+        mock_tool_mgr_cls,
+        mock_cache_mgr_cls,
+        mock_validate,
+        mock_load_settings,
+        mock_setup_logging,
     ):
         """Test main when no videos are available for download."""
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_validate.return_value = True
-        
+
         # Mock empty playlist
         mock_playlist = Mock()
         mock_playlist.get_available_videos.return_value = []
-        
+
         mock_downloader = Mock()
         mock_downloader.download_playlist.return_value = mock_playlist
         mock_downloader_cls.return_value = mock_downloader
-        
+
         with patch("sys.argv", ["dvdmaker", "--playlist-url", "PLtest123"]):
             result = main()
-            
+
         assert result == 1
 
     @patch("src.main.setup_application_logging")
@@ -1224,32 +1234,38 @@ class TestMainErrorHandling:
     @patch("src.main.VideoDownloader")
     @patch("src.main.VideoConverter")
     def test_main_no_video_files_for_conversion(
-        self, mock_converter_cls, mock_downloader_cls, mock_tool_mgr_cls,
-        mock_cache_mgr_cls, mock_validate, mock_load_settings, mock_setup_logging
+        self,
+        mock_converter_cls,
+        mock_downloader_cls,
+        mock_tool_mgr_cls,
+        mock_cache_mgr_cls,
+        mock_validate,
+        mock_load_settings,
+        mock_setup_logging,
     ):
         """Test main when no video files are available for conversion."""
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_validate.return_value = True
-        
+
         # Mock playlist with videos but no cached files
         mock_playlist = Mock()
         mock_video = Mock()
         mock_video.video_id = "test123"
         mock_playlist.get_available_videos.return_value = [mock_video]
-        
+
         mock_downloader = Mock()
         mock_downloader.download_playlist.return_value = mock_playlist
         mock_downloader_cls.return_value = mock_downloader
-        
+
         # Mock cache manager returning None for cached downloads
         mock_cache_manager = Mock()
         mock_cache_manager.get_cached_download.return_value = None
         mock_cache_mgr_cls.return_value = mock_cache_manager
-        
+
         with patch("sys.argv", ["dvdmaker", "--playlist-url", "PLtest123"]):
             result = main()
-            
+
         assert result == 1
 
     @patch("src.main.setup_application_logging")
@@ -1260,37 +1276,43 @@ class TestMainErrorHandling:
     @patch("src.main.VideoDownloader")
     @patch("src.main.VideoConverter")
     def test_main_no_converted_videos(
-        self, mock_converter_cls, mock_downloader_cls, mock_tool_mgr_cls,
-        mock_cache_mgr_cls, mock_validate, mock_load_settings, mock_setup_logging
+        self,
+        mock_converter_cls,
+        mock_downloader_cls,
+        mock_tool_mgr_cls,
+        mock_cache_mgr_cls,
+        mock_validate,
+        mock_load_settings,
+        mock_setup_logging,
     ):
         """Test main when no videos are successfully converted."""
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_validate.return_value = True
-        
+
         # Mock playlist with videos
         mock_playlist = Mock()
         mock_video = Mock()
         mock_video.video_id = "test123"
         mock_playlist.get_available_videos.return_value = [mock_video]
-        
+
         mock_downloader = Mock()
         mock_downloader.download_playlist.return_value = mock_playlist
         mock_downloader_cls.return_value = mock_downloader
-        
+
         # Mock cache manager returning video file
         mock_cache_manager = Mock()
         mock_cache_manager.get_cached_download.return_value = Mock()
         mock_cache_mgr_cls.return_value = mock_cache_manager
-        
+
         # Mock converter returning no converted videos
         mock_converter = Mock()
         mock_converter.convert_videos.return_value = []
         mock_converter_cls.return_value = mock_converter
-        
+
         with patch("sys.argv", ["dvdmaker", "--playlist-url", "PLtest123"]):
             result = main()
-            
+
         assert result == 1
 
     @patch("src.main.setup_application_logging")
@@ -1302,43 +1324,49 @@ class TestMainErrorHandling:
     @patch("src.main.VideoConverter")
     @patch("src.main.select_videos_for_dvd_capacity")
     def test_main_no_videos_fit_dvd_capacity(
-        self, mock_capacity, mock_converter_cls, mock_downloader_cls,
-        mock_tool_mgr_cls, mock_cache_mgr_cls, mock_validate,
-        mock_load_settings, mock_setup_logging
+        self,
+        mock_capacity,
+        mock_converter_cls,
+        mock_downloader_cls,
+        mock_tool_mgr_cls,
+        mock_cache_mgr_cls,
+        mock_validate,
+        mock_load_settings,
+        mock_setup_logging,
     ):
         """Test main when no videos fit on DVD after capacity check."""
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_validate.return_value = True
-        
+
         # Mock playlist with videos
         mock_playlist = Mock()
         mock_video = Mock()
         mock_video.video_id = "test123"
         mock_playlist.get_available_videos.return_value = [mock_video]
-        
+
         mock_downloader = Mock()
         mock_downloader.download_playlist.return_value = mock_playlist
         mock_downloader_cls.return_value = mock_downloader
-        
+
         # Mock cache manager returning video file
         mock_cache_manager = Mock()
         mock_cache_manager.get_cached_download.return_value = Mock()
         mock_cache_mgr_cls.return_value = mock_cache_manager
-        
+
         # Mock converter returning converted videos
         mock_converter = Mock()
         mock_converter.convert_videos.return_value = [Mock()]
         mock_converter_cls.return_value = mock_converter
-        
+
         # Mock capacity check returning no videos that fit
         mock_capacity_result = Mock()
         mock_capacity_result.included_videos = []
         mock_capacity.return_value = mock_capacity_result
-        
+
         with patch("sys.argv", ["dvdmaker", "--playlist-url", "PLtest123"]):
             result = main()
-            
+
         assert result == 1
 
     @patch("src.main.setup_application_logging")
@@ -1351,15 +1379,22 @@ class TestMainErrorHandling:
     @patch("src.main.select_videos_for_dvd_capacity")
     @patch("src.main.log_excluded_videos")
     def test_main_dvd_capacity_exclusions(
-        self, mock_log_excluded, mock_capacity, mock_converter_cls,
-        mock_downloader_cls, mock_tool_mgr_cls, mock_cache_mgr_cls,
-        mock_validate, mock_load_settings, mock_setup_logging
+        self,
+        mock_log_excluded,
+        mock_capacity,
+        mock_converter_cls,
+        mock_downloader_cls,
+        mock_tool_mgr_cls,
+        mock_cache_mgr_cls,
+        mock_validate,
+        mock_load_settings,
+        mock_setup_logging,
     ):
         """Test main when some videos are excluded due to DVD capacity."""
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_validate.return_value = True
-        
+
         # Mock playlist with videos
         mock_playlist = Mock()
         mock_video = Mock()
@@ -1367,22 +1402,22 @@ class TestMainErrorHandling:
         mock_playlist.get_available_videos.return_value = [mock_video]
         mock_playlist.metadata.title = "Test Playlist"
         mock_playlist.metadata.playlist_id = "PLtest123"
-        
+
         mock_downloader = Mock()
         mock_downloader.download_playlist.return_value = mock_playlist
         mock_downloader_cls.return_value = mock_downloader
-        
+
         # Mock cache manager returning video file
         mock_cache_manager = Mock()
         mock_cache_manager.get_cached_download.return_value = Mock()
         mock_cache_mgr_cls.return_value = mock_cache_manager
-        
+
         # Mock converter returning converted videos
         mock_converter = Mock()
         mock_converted_video = Mock()
         mock_converter.convert_videos.return_value = [mock_converted_video]
         mock_converter_cls.return_value = mock_converter
-        
+
         # Mock capacity check with exclusions
         mock_excluded_video = Mock()
         mock_capacity_result = Mock()
@@ -1393,20 +1428,20 @@ class TestMainErrorHandling:
         mock_capacity_result.total_duration_human_readable = "10:30"
         mock_capacity_result.excluded_size_gb = 1.5
         mock_capacity.return_value = mock_capacity_result
-        
+
         # Mock DVD author
         mock_authored_dvd = Mock()
         mock_authored_dvd.video_ts_dir = Path("/tmp/output/VIDEO_TS")
         mock_authored_dvd.iso_file = None
-        
+
         with patch("src.main.DVDAuthor") as mock_dvd_author_cls:
             mock_dvd_author = Mock()
             mock_dvd_author.create_dvd_structure.return_value = mock_authored_dvd
             mock_dvd_author_cls.return_value = mock_dvd_author
-            
+
             with patch("sys.argv", ["dvdmaker", "--playlist-url", "PLtest123"]):
                 result = main()
-                
+
         assert result == 0
         mock_log_excluded.assert_called_once_with([mock_excluded_video])
 
@@ -1417,15 +1452,17 @@ class TestMainCleanupOperation:
     @patch("src.main.perform_cleanup")
     @patch("src.main.setup_application_logging")
     @patch("src.main.load_settings")
-    def test_main_cleanup_operation(self, mock_load_settings, mock_setup_logging, mock_perform_cleanup):
+    def test_main_cleanup_operation(
+        self, mock_load_settings, mock_setup_logging, mock_perform_cleanup
+    ):
         """Test main function with cleanup operation."""
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_perform_cleanup.return_value = 0
-        
+
         with patch("sys.argv", ["dvdmaker", "--clean", "downloads"]):
             result = main()
-            
+
         assert result == 0
         mock_perform_cleanup.assert_called_once_with("downloads", mock_settings)
 
@@ -1443,15 +1480,24 @@ class TestMainDVDCreationWithISOPath:
     @patch("src.main.DVDAuthor")
     @patch("src.main.select_videos_for_dvd_capacity")
     def test_main_dvd_creation_with_iso_relative_path(
-        self, mock_capacity, mock_dvd_author_cls, mock_converter_cls,
-        mock_downloader_cls, mock_tool_mgr_cls, mock_cache_mgr_cls,
-        mock_validate, mock_load_settings, mock_setup_logging, tmp_path, capsys
+        self,
+        mock_capacity,
+        mock_dvd_author_cls,
+        mock_converter_cls,
+        mock_downloader_cls,
+        mock_tool_mgr_cls,
+        mock_cache_mgr_cls,
+        mock_validate,
+        mock_load_settings,
+        mock_setup_logging,
+        tmp_path,
+        capsys,
     ):
         """Test main DVD creation with ISO file using relative path."""
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_validate.return_value = True
-        
+
         # Setup complete mock chain
         mock_playlist = Mock()
         mock_video = Mock()
@@ -1459,52 +1505,53 @@ class TestMainDVDCreationWithISOPath:
         mock_playlist.get_available_videos.return_value = [mock_video]
         mock_playlist.metadata.title = "Test Playlist"
         mock_playlist.metadata.playlist_id = "PLtest123"
-        
+
         mock_downloader = Mock()
         mock_downloader.download_playlist.return_value = mock_playlist
         mock_downloader_cls.return_value = mock_downloader
-        
+
         mock_cache_manager = Mock()
         mock_cache_manager.get_cached_download.return_value = Mock()
         mock_cache_mgr_cls.return_value = mock_cache_manager
-        
+
         mock_converter = Mock()
         mock_converted_video = Mock()
         mock_converter.convert_videos.return_value = [mock_converted_video]
         mock_converter_cls.return_value = mock_converter
-        
+
         mock_capacity_result = Mock()
         mock_capacity_result.has_exclusions = False
         mock_capacity_result.included_videos = [mock_converted_video]
         mock_capacity_result.total_size_gb = 3.2
         mock_capacity_result.total_duration_human_readable = "10:30"
         mock_capacity.return_value = mock_capacity_result
-        
+
         # Create ISO file in current working directory for relative path
         iso_file = tmp_path / "test.iso"
         iso_file.touch()
-        
+
         mock_authored_dvd = Mock()
         mock_authored_dvd.video_ts_dir = Path("/tmp/output/VIDEO_TS")
         mock_authored_dvd.iso_file = str(iso_file)
-        
+
         mock_dvd_author = Mock()
         mock_dvd_author.create_dvd_structure.return_value = mock_authored_dvd
         mock_dvd_author_cls.return_value = mock_dvd_author
-        
+
         # Change to tmp_path to make ISO path relative
         import os
+
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            
+
             with patch("sys.argv", ["dvdmaker", "--playlist-url", "PLtest123"]):
                 result = main()
-                
+
             assert result == 0
             captured = capsys.readouterr()
             assert "ISO file: test.iso" in captured.out
-            
+
         finally:
             os.chdir(old_cwd)
 
@@ -1518,15 +1565,23 @@ class TestMainDVDCreationWithISOPath:
     @patch("src.main.DVDAuthor")
     @patch("src.main.select_videos_for_dvd_capacity")
     def test_main_dvd_creation_with_iso_absolute_path(
-        self, mock_capacity, mock_dvd_author_cls, mock_converter_cls,
-        mock_downloader_cls, mock_tool_mgr_cls, mock_cache_mgr_cls,
-        mock_validate, mock_load_settings, mock_setup_logging, capsys
+        self,
+        mock_capacity,
+        mock_dvd_author_cls,
+        mock_converter_cls,
+        mock_downloader_cls,
+        mock_tool_mgr_cls,
+        mock_cache_mgr_cls,
+        mock_validate,
+        mock_load_settings,
+        mock_setup_logging,
+        capsys,
     ):
         """Test main DVD creation with ISO file using absolute path."""
         mock_settings = Settings()
         mock_load_settings.return_value = mock_settings
         mock_validate.return_value = True
-        
+
         # Setup complete mock chain
         mock_playlist = Mock()
         mock_video = Mock()
@@ -1534,41 +1589,41 @@ class TestMainDVDCreationWithISOPath:
         mock_playlist.get_available_videos.return_value = [mock_video]
         mock_playlist.metadata.title = "Test Playlist"
         mock_playlist.metadata.playlist_id = "PLtest123"
-        
+
         mock_downloader = Mock()
         mock_downloader.download_playlist.return_value = mock_playlist
         mock_downloader_cls.return_value = mock_downloader
-        
+
         mock_cache_manager = Mock()
         mock_cache_manager.get_cached_download.return_value = Mock()
         mock_cache_mgr_cls.return_value = mock_cache_manager
-        
+
         mock_converter = Mock()
         mock_converted_video = Mock()
         mock_converter.convert_videos.return_value = [mock_converted_video]
         mock_converter_cls.return_value = mock_converter
-        
+
         mock_capacity_result = Mock()
         mock_capacity_result.has_exclusions = False
         mock_capacity_result.included_videos = [mock_converted_video]
         mock_capacity_result.total_size_gb = 3.2
         mock_capacity_result.total_duration_human_readable = "10:30"
         mock_capacity.return_value = mock_capacity_result
-        
+
         # Use absolute path that can't be made relative to cwd
         iso_file = "/completely/different/path/test.iso"
-        
+
         mock_authored_dvd = Mock()
         mock_authored_dvd.video_ts_dir = Path("/tmp/output/VIDEO_TS")
         mock_authored_dvd.iso_file = iso_file
-        
+
         mock_dvd_author = Mock()
         mock_dvd_author.create_dvd_structure.return_value = mock_authored_dvd
         mock_dvd_author_cls.return_value = mock_dvd_author
-        
+
         with patch("sys.argv", ["dvdmaker", "--playlist-url", "PLtest123"]):
             result = main()
-            
+
         assert result == 0
         captured = capsys.readouterr()
         assert "ISO file:" in captured.out
@@ -1580,7 +1635,7 @@ class TestArgumentValidationMissingURL:
     def test_validate_arguments_no_playlist_url_attribute(self):
         """Test validation when playlist_url attribute doesn't exist."""
         from src.main import validate_arguments
-        
+
         # Create args without playlist_url attribute (clean operation)
         args = argparse.Namespace(
             clean="downloads",
@@ -1590,14 +1645,14 @@ class TestArgumentValidationMissingURL:
             download_tools=False,
         )
         # Don't set playlist_url attribute at all
-        
+
         # Should not raise any exception for clean operation
         validate_arguments(args)
 
     def test_validate_arguments_none_playlist_url(self):
         """Test validation with None playlist URL for non-clean operation."""
         from src.main import validate_arguments
-        
+
         args = argparse.Namespace(
             playlist_url=None,
             quiet=False,
@@ -1605,7 +1660,7 @@ class TestArgumentValidationMissingURL:
             use_system_tools=False,
             download_tools=False,
         )
-        
+
         with pytest.raises(ValueError, match="Playlist URL is required"):
             validate_arguments(args)
 
@@ -1616,7 +1671,7 @@ class TestMergeSettingsQuietFlag:
     def test_merge_settings_with_quiet_flag(self):
         """Test merging settings with quiet flag."""
         from src.main import merge_settings_with_args
-        
+
         settings = Settings()
         args = argparse.Namespace(
             output_dir=None,
@@ -1635,7 +1690,7 @@ class TestMergeSettingsQuietFlag:
             verbose=False,
             quiet=True,  # Test quiet flag
         )
-        
+
         merged = merge_settings_with_args(args, settings)
         assert merged.quiet is True
 
@@ -1648,13 +1703,12 @@ class TestScriptMainExecution:
     def test_script_main_execution(self, mock_main, mock_exit):
         """Test script execution when run as main."""
         mock_main.return_value = 0
-        
+
         # Execute the main module's __main__ code path
-        exec('if __name__ == "__main__": sys.exit(main())', {
-            "__name__": "__main__",
-            "sys": sys,
-            "main": mock_main
-        })
-        
+        exec(
+            'if __name__ == "__main__": sys.exit(main())',
+            {"__name__": "__main__", "sys": sys, "main": mock_main},
+        )
+
         mock_main.assert_called_once()
         mock_exit.assert_called_once_with(0)

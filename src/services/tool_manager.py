@@ -19,17 +19,15 @@ import requests
 
 from ..config.settings import Settings
 from ..exceptions import DVDMakerError
-from ..utils.logging import get_logger
 from ..utils.platform import (
     get_download_url,
     get_dvdauthor_install_instructions,
     is_platform_supported,
 )
+from .base import BaseService
 
 # Simple progress callback type
 ProgressCallback = Callable[[str, float], None]
-
-logger = get_logger(__name__)
 
 
 class ToolManagerError(DVDMakerError):
@@ -50,7 +48,7 @@ class ToolValidationError(ToolManagerError):
     pass
 
 
-class ToolManager:
+class ToolManager(BaseService):
     """Manages external tools required for DVD creation.
 
     This class handles:
@@ -69,7 +67,7 @@ class ToolManager:
             settings: Application settings
             progress_callback: Optional callback for progress reporting
         """
-        self.settings = settings
+        super().__init__(settings)
         self.progress_callback = progress_callback
         self.bin_dir = settings.bin_dir
         self.tool_versions_file = self.bin_dir / "tool_versions.json"
@@ -79,8 +77,6 @@ class ToolManager:
 
         # Ensure bin directory exists
         self.bin_dir.mkdir(parents=True, exist_ok=True)
-
-        logger.debug(f"ToolManager initialized with bin_dir: {self.bin_dir}")
 
     def _run_logged_subprocess(
         self,
@@ -103,7 +99,7 @@ class ToolManager:
             CompletedProcess result
         """
         cmd_str = " ".join(str(arg) for arg in cmd)
-        logger.debug(f"Executing command: {cmd_str}")
+        self.logger.debug(f"Executing command: {cmd_str}")
 
         try:
             result = subprocess.run(
@@ -115,12 +111,12 @@ class ToolManager:
             )
 
             # Log command completion and output
-            logger.debug(
+            self.logger.debug(
                 f"Command completed with return code {result.returncode}: {cmd_str}"
             )
 
             if capture_output and result.stdout:
-                logger.debug(f"Command stdout: {result.stdout.strip()}")
+                self.logger.debug(f"Command stdout: {result.stdout.strip()}")
 
             if capture_output and result.stderr:
                 # Special case: dvdauthor --help returns exit code 1 but is successful
@@ -130,24 +126,26 @@ class ToolManager:
                     and result.returncode == 1
                 )
                 if result.returncode == 0 or is_dvdauthor_help:
-                    logger.debug(f"Command stderr: {result.stderr.strip()}")
+                    self.logger.debug(f"Command stderr: {result.stderr.strip()}")
                 else:
-                    logger.warning(f"Command stderr: {result.stderr.strip()}")
+                    self.logger.warning(f"Command stderr: {result.stderr.strip()}")
 
             return result
 
         except subprocess.TimeoutExpired:
-            logger.error(f"Command timed out after {timeout}s: {cmd_str}")
+            self.logger.error(f"Command timed out after {timeout}s: {cmd_str}")
             raise
         except subprocess.CalledProcessError as e:
-            logger.error(f"Command failed with return code {e.returncode}: {cmd_str}")
+            self.logger.error(
+                f"Command failed with return code {e.returncode}: {cmd_str}"
+            )
             if e.stdout:
-                logger.debug(f"Failed command stdout: {e.stdout.strip()}")
+                self.logger.debug(f"Failed command stdout: {e.stdout.strip()}")
             if e.stderr:
-                logger.debug(f"Failed command stderr: {e.stderr.strip()}")
+                self.logger.debug(f"Failed command stderr: {e.stderr.strip()}")
             raise
         except Exception as e:
-            logger.error(f"Command execution failed: {cmd_str} - {e}")
+            self.logger.error(f"Command execution failed: {cmd_str} - {e}")
             raise
 
     def get_tool_versions(self) -> Dict[str, str]:
@@ -157,16 +155,16 @@ class ToolManager:
             Dictionary mapping tool names to versions
         """
         if not self.tool_versions_file.exists():
-            logger.debug("No tool_versions.json found, returning empty dict")
+            self.logger.debug("No tool_versions.json found, returning empty dict")
             return {}
 
         try:
             with open(self.tool_versions_file, "r") as f:
                 versions: Dict[str, str] = json.load(f)
-            logger.debug(f"Loaded tool versions: {versions}")
+            self.logger.debug(f"Loaded tool versions: {versions}")
             return versions
         except (json.JSONDecodeError, IOError) as e:
-            logger.warning(f"Failed to load tool versions: {e}")
+            self.logger.warning(f"Failed to load tool versions: {e}")
             return {}
 
     def save_tool_versions(self, versions: Dict[str, str]) -> None:
@@ -178,9 +176,9 @@ class ToolManager:
         try:
             with open(self.tool_versions_file, "w") as f:
                 json.dump(versions, f, indent=2)
-            logger.debug(f"Saved tool versions: {versions}")
+            self.logger.debug(f"Saved tool versions: {versions}")
         except IOError as e:
-            logger.error(f"Failed to save tool versions: {e}")
+            self.logger.error(f"Failed to save tool versions: {e}")
             raise ToolManagerError(f"Failed to save tool versions: {e}")
 
     def get_tool_path(self, tool_name: str) -> Path:
@@ -215,7 +213,7 @@ class ToolManager:
             # Check if file is executable
             available = os.access(tool_path, os.X_OK)
 
-        logger.debug(f"Tool {tool_name} local availability: {available}")
+        self.logger.debug(f"Tool {tool_name} local availability: {available}")
         return available
 
     def is_tool_available_system(self, tool_name: str) -> bool:
@@ -239,7 +237,7 @@ class ToolManager:
         else:
             available = shutil.which(tool_name) is not None
 
-        logger.debug(f"Tool {tool_name} system availability: {available}")
+        self.logger.debug(f"Tool {tool_name} system availability: {available}")
         return available
 
     def _validate_and_get_version(
@@ -254,7 +252,9 @@ class ToolManager:
         Returns:
             Tuple of (is_functional, version_string)
         """
-        logger.debug(f"Validating functionality and getting version for {tool_name}")
+        self.logger.debug(
+            f"Validating functionality and getting version for {tool_name}"
+        )
 
         try:
             if tool_name == "ffmpeg":
@@ -266,7 +266,7 @@ class ToolManager:
             elif tool_name == "mkisofs":
                 cmd = ["mkisofs", "--version"]
             else:
-                logger.error(f"Unknown tool for validation: {tool_name}")
+                self.logger.error(f"Unknown tool for validation: {tool_name}")
                 return False, None
 
             # Use longer timeout for yt-dlp as it can be slow on first run
@@ -275,7 +275,7 @@ class ToolManager:
 
             # Handle mkisofs fallback to genisoimage
             if tool_name == "mkisofs" and result.returncode != 0:
-                logger.debug("mkisofs version check failed, trying genisoimage")
+                self.logger.debug("mkisofs version check failed, trying genisoimage")
                 try:
                     fallback_cmd = ["genisoimage", "--version"]
                     fallback_result = self._run_logged_subprocess(
@@ -283,14 +283,16 @@ class ToolManager:
                     )
                     if fallback_result.returncode == 0:
                         result = fallback_result
-                        logger.debug("Using genisoimage version info")
+                        self.logger.debug("Using genisoimage version info")
                     else:
-                        logger.warning(
+                        self.logger.warning(
                             "Both mkisofs and genisoimage version checks failed"
                         )
                         return False, None
                 except Exception:
-                    logger.warning("Both mkisofs and genisoimage version checks failed")
+                    self.logger.warning(
+                        "Both mkisofs and genisoimage version checks failed"
+                    )
                     return False, None
 
             # Determine if tool is functional
@@ -302,7 +304,9 @@ class ToolManager:
                 # dvdauthor --help returns exit code 1 but is still functional
                 functional = True
             elif result.returncode != 0:
-                logger.warning(f"Tool {tool_name} validation failed: {result.stderr}")
+                self.logger.warning(
+                    f"Tool {tool_name} validation failed: {result.stderr}"
+                )
                 return False, None
             else:
                 functional = True
@@ -313,7 +317,7 @@ class ToolManager:
             )
 
             if functional:
-                logger.debug(f"Tool {tool_name} is functional, version: {version}")
+                self.logger.debug(f"Tool {tool_name} is functional, version: {version}")
 
             return functional, version
 
@@ -322,7 +326,9 @@ class ToolManager:
             subprocess.SubprocessError,
             FileNotFoundError,
         ) as e:
-            logger.warning(f"Tool {tool_name} validation failed with exception: {e}")
+            self.logger.warning(
+                f"Tool {tool_name} validation failed with exception: {e}"
+            )
             return False, None
 
     def _extract_version_from_output(
@@ -345,12 +351,12 @@ class ToolManager:
             for line in output.split("\n"):
                 if line.startswith("ffmpeg version"):
                     version = line.split()[2]
-                    logger.debug(f"Extracted {tool_name} version: {version}")
+                    self.logger.debug(f"Extracted {tool_name} version: {version}")
                     return version
         elif tool_name == "yt-dlp":
             # yt-dlp outputs just the version string
             version = output.strip()
-            logger.debug(f"Extracted {tool_name} version: {version}")
+            self.logger.debug(f"Extracted {tool_name} version: {version}")
             return version
         elif tool_name == "dvdauthor":
             # dvdauthor help output contains version info in stderr
@@ -362,11 +368,11 @@ class ToolManager:
                     parts = line.split("version")
                     if len(parts) > 1:
                         version = parts[1].strip().rstrip(".").split()[0]
-                        logger.debug(f"Extracted {tool_name} version: {version}")
+                        self.logger.debug(f"Extracted {tool_name} version: {version}")
                         return version
                     else:
                         version = "system"
-                        logger.debug(f"Detected {tool_name} version: {version}")
+                        self.logger.debug(f"Detected {tool_name} version: {version}")
                         return version
         elif tool_name == "mkisofs":
             # mkisofs/genisoimage version output varies
@@ -382,14 +388,14 @@ class ToolManager:
                 )
                 if version_match:
                     version = version_match.group(1)
-                    logger.debug(f"Extracted {tool_name} version: {version}")
+                    self.logger.debug(f"Extracted {tool_name} version: {version}")
                     return version
             # Fallback for minimal version info
             version = "system"
-            logger.debug(f"Detected {tool_name} version: {version}")
+            self.logger.debug(f"Detected {tool_name} version: {version}")
             return version
 
-        logger.warning(f"Could not extract version from {tool_name} output")
+        self.logger.warning(f"Could not extract version from {tool_name} output")
         return None
 
     def validate_tool_functionality(
@@ -432,7 +438,7 @@ class ToolManager:
         Raises:
             ToolDownloadError: If download fails
         """
-        logger.info(f"Downloading {url} to {destination}")
+        self.logger.info(f"Downloading {url} to {destination}")
 
         try:
             response = requests.get(url, stream=True, timeout=30)
@@ -453,10 +459,10 @@ class ToolManager:
                                 f"Downloading {destination.name}", progress
                             )
 
-            logger.info(f"Successfully downloaded {destination.name}")
+            self.logger.info(f"Successfully downloaded {destination.name}")
 
         except requests.RequestException as e:
-            logger.error(f"Failed to download {url}: {e}")
+            self.logger.error(f"Failed to download {url}: {e}")
             raise ToolDownloadError(f"Failed to download {url}: {e}")
 
     def extract_archive(self, archive_path: Path, extract_to: Path) -> None:
@@ -469,7 +475,7 @@ class ToolManager:
         Raises:
             ToolDownloadError: If extraction fails
         """
-        logger.debug(f"Extracting {archive_path} to {extract_to}")
+        self.logger.debug(f"Extracting {archive_path} to {extract_to}")
 
         try:
             if archive_path.suffix.lower() == ".zip":
@@ -483,10 +489,10 @@ class ToolManager:
                     f"Unsupported archive format: {archive_path.suffix}"
                 )
 
-            logger.debug(f"Successfully extracted {archive_path.name}")
+            self.logger.debug(f"Successfully extracted {archive_path.name}")
 
         except (zipfile.BadZipFile, tarfile.TarError) as e:
-            logger.error(f"Failed to extract {archive_path}: {e}")
+            self.logger.error(f"Failed to extract {archive_path}: {e}")
             raise ToolDownloadError(f"Failed to extract {archive_path}: {e}")
 
     def make_executable(self, file_path: Path) -> None:
@@ -495,14 +501,14 @@ class ToolManager:
         Args:
             file_path: Path to the file to make executable
         """
-        logger.debug(f"Making {file_path} executable")
+        self.logger.debug(f"Making {file_path} executable")
 
         # Add execute permissions for user, group, and others
         current_mode = file_path.stat().st_mode
         new_mode = current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
         file_path.chmod(new_mode)
 
-        logger.debug(f"Made {file_path} executable")
+        self.logger.debug(f"Made {file_path} executable")
 
     def download_tool(self, tool_name: str) -> bool:
         """Download a specific tool.
@@ -516,7 +522,7 @@ class ToolManager:
         Raises:
             ToolDownloadError: If download fails
         """
-        logger.info(f"Starting download of {tool_name}")
+        self.logger.info(f"Starting download of {tool_name}")
 
         if not is_platform_supported():
             raise ToolDownloadError("Platform not supported for tool downloads")
@@ -578,7 +584,7 @@ class ToolManager:
             versions[tool_name] = version
             self.save_tool_versions(versions)
 
-            logger.info(f"Successfully downloaded and installed {tool_name}")
+            self.logger.info(f"Successfully downloaded and installed {tool_name}")
             # Cache will be invalidated by caller if needed
             return True
 
@@ -594,7 +600,7 @@ class ToolManager:
         Returns:
             Path to the binary or None if not found
         """
-        logger.debug(f"Looking for {tool_name} binary in {extract_dir}")
+        self.logger.debug(f"Looking for {tool_name} binary in {extract_dir}")
 
         # Common patterns for finding binaries
         patterns = [
@@ -608,10 +614,10 @@ class ToolManager:
                 if file_path.is_file() and (
                     os.access(file_path, os.X_OK) or file_path.suffix.lower() == ".exe"
                 ):
-                    logger.debug(f"Found {tool_name} binary at {file_path}")
+                    self.logger.debug(f"Found {tool_name} binary at {file_path}")
                     return file_path
 
-        logger.warning(f"Could not find {tool_name} binary in extracted files")
+        self.logger.warning(f"Could not find {tool_name} binary in extracted files")
         return None
 
     def check_tools(self, use_cache: bool = True) -> Dict[str, Dict[str, Any]]:
@@ -625,10 +631,10 @@ class ToolManager:
         """
         # Return cached status if available and requested
         if use_cache and self._tools_status_cache is not None:
-            logger.debug("Using cached tool status")
+            self.logger.debug("Using cached tool status")
             return self._tools_status_cache
 
-        logger.debug("Checking tool availability and status")
+        self.logger.debug("Checking tool availability and status")
 
         tools_status = {}
 
@@ -641,7 +647,7 @@ class ToolManager:
             required_tools.append("mkisofs")
 
         for tool_name in required_tools:
-            logger.debug(f"Checking status of {tool_name}")
+            self.logger.debug(f"Checking status of {tool_name}")
 
             status: Dict[str, Any] = {
                 "available_locally": False,
@@ -684,7 +690,7 @@ class ToolManager:
                     status["path"] = shutil.which(tool_name)
 
             tools_status[tool_name] = status
-            logger.debug(f"Status for {tool_name}: {status}")
+            self.logger.debug(f"Status for {tool_name}: {status}")
 
         # Cache the results for future use
         self._tools_status_cache = tools_status
@@ -692,7 +698,7 @@ class ToolManager:
 
     def _invalidate_cache(self) -> None:
         """Invalidate the tools status cache."""
-        logger.debug("Invalidating tools status cache")
+        self.logger.debug("Invalidating tools status cache")
         self._tools_status_cache = None
 
     def ensure_tools_available(self) -> Tuple[bool, List[str]]:
@@ -701,21 +707,21 @@ class ToolManager:
         Returns:
             Tuple of (success, list of missing tools with instructions)
         """
-        logger.debug("Ensuring all required tools are available")
+        self.logger.debug("Ensuring all required tools are available")
 
         tools_status = self.check_tools(use_cache=False)  # Force fresh check
         missing_tools: List[str] = []
         needs_recheck = False
 
         for tool_name, status in tools_status.items():
-            logger.debug(f"Processing tool {tool_name} with status: {status}")
+            self.logger.debug(f"Processing tool {tool_name} with status: {status}")
 
             if not status["functional"]:
                 if tool_name == "dvdauthor":
                     # dvdauthor must be installed by user
                     instructions = get_dvdauthor_install_instructions()
                     missing_tools.append(f"{tool_name}: {instructions}")
-                    logger.warning(f"dvdauthor not available: {instructions}")
+                    self.logger.warning(f"dvdauthor not available: {instructions}")
                 elif tool_name == "mkisofs":
                     # mkisofs is system-only, provide installation instructions
                     missing_tools.append(
@@ -724,25 +730,29 @@ class ToolManager:
                         "  Ubuntu/Debian: sudo apt install genisoimage\n"
                         "  RHEL/CentOS: sudo yum install genisoimage"
                     )
-                    logger.warning("mkisofs/genisoimage not available for ISO creation")
+                    self.logger.warning(
+                        "mkisofs/genisoimage not available for ISO creation"
+                    )
                 elif self.settings.download_tools:
                     # Try to download the tool
                     try:
-                        logger.info(f"Attempting to download {tool_name}")
+                        self.logger.info(f"Attempting to download {tool_name}")
                         self.download_tool(tool_name)
-                        logger.info(f"Successfully downloaded {tool_name}")
+                        self.logger.info(f"Successfully downloaded {tool_name}")
                         needs_recheck = True
                     except ToolDownloadError as e:
                         missing_tools.append(f"{tool_name}: Download failed - {e}")
-                        logger.error(f"Failed to download {tool_name}: {e}")
+                        self.logger.error(f"Failed to download {tool_name}: {e}")
                     except Exception as e:
                         missing_tools.append(f"{tool_name}: Unexpected error - {e}")
-                        logger.error(f"Unexpected error downloading {tool_name}: {e}")
+                        self.logger.error(
+                            f"Unexpected error downloading {tool_name}: {e}"
+                        )
                 else:
                     missing_tools.append(
                         f"{tool_name}: Not available and auto-download disabled"
                     )
-                    logger.warning(
+                    self.logger.warning(
                         f"{tool_name} not available and auto-download disabled. "
                         f"Status: available_locally={status['available_locally']}, "
                         f"available_system={status['available_system']}, "
@@ -751,7 +761,7 @@ class ToolManager:
 
         # Only recheck tools once if any downloads occurred
         if needs_recheck:
-            logger.debug("Rechecking tools after downloads")
+            self.logger.debug("Rechecking tools after downloads")
             # Invalidate cache before rechecking since tools were downloaded
             self._invalidate_cache()
             tools_status = self.check_tools(use_cache=False)
@@ -767,16 +777,16 @@ class ToolManager:
                         missing_tools.append(
                             f"{tool_name}: Downloaded but not functional"
                         )
-                        logger.error(
+                        self.logger.error(
                             f"{tool_name} downloaded but validation failed: {status}"
                         )
 
         success = len(missing_tools) == 0
 
         if success:
-            logger.debug("All required tools are available")
+            self.logger.debug("All required tools are available")
         else:
-            logger.warning(f"Missing tools: {missing_tools}")
+            self.logger.warning(f"Missing tools: {missing_tools}")
 
         return success, missing_tools
 
@@ -805,7 +815,7 @@ class ToolManager:
         else:
             command = [tool_name]
 
-        logger.debug(f"Command for {tool_name}: {command}")
+        self.logger.debug(f"Command for {tool_name}: {command}")
         return command
 
     def get_latest_ytdlp_version(self) -> Optional[str]:
@@ -815,7 +825,7 @@ class ToolManager:
             Latest version string or None if unable to determine
         """
         try:
-            logger.debug("Checking for latest yt-dlp version from GitHub")
+            self.logger.debug("Checking for latest yt-dlp version from GitHub")
 
             # Use GitHub API to get latest release info
             api_url = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
@@ -826,19 +836,19 @@ class ToolManager:
             latest_version = str(release_data.get("tag_name", "")).strip()
 
             if latest_version:
-                logger.debug(f"Latest yt-dlp version: {latest_version}")
+                self.logger.debug(f"Latest yt-dlp version: {latest_version}")
                 return latest_version
             else:
-                logger.warning(
+                self.logger.warning(
                     "Could not determine latest yt-dlp version from API response"
                 )
                 return None
 
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Failed to check latest yt-dlp version: {e}")
+            self.logger.warning(f"Failed to check latest yt-dlp version: {e}")
             return None
         except (KeyError, ValueError) as e:
-            logger.warning(f"Failed to parse yt-dlp version response: {e}")
+            self.logger.warning(f"Failed to parse yt-dlp version response: {e}")
             return None
 
     def compare_versions(self, current: str, latest: str) -> bool:
@@ -869,7 +879,7 @@ class ToolManager:
 
             # If either version parsing failed (empty tuple), can't compare
             if not current_parts or not latest_parts:
-                logger.warning(
+                self.logger.warning(
                     f"Failed to parse version parts: current={current_parts}, "
                     f"latest={latest_parts}"
                 )
@@ -881,14 +891,16 @@ class ToolManager:
             latest_padded = latest_parts + (0,) * (max_len - len(latest_parts))
 
             is_newer = latest_padded > current_padded
-            logger.debug(
+            self.logger.debug(
                 f"Version comparison: {current} -> {latest} (newer: {is_newer})"
             )
 
             return is_newer
 
         except Exception as e:
-            logger.warning(f"Failed to compare versions {current} vs {latest}: {e}")
+            self.logger.warning(
+                f"Failed to compare versions {current} vs {latest}: {e}"
+            )
             return False
 
     def check_and_update_ytdlp(self) -> bool:
@@ -897,7 +909,7 @@ class ToolManager:
         Returns:
             True if yt-dlp was updated or is already current, False if update failed
         """
-        logger.info("Checking for yt-dlp updates...")
+        self.logger.info("Checking for yt-dlp updates...")
 
         try:
             # Check if yt-dlp is available locally and get its version
@@ -908,25 +920,27 @@ class ToolManager:
                 current_version = None
 
             if not current_version:
-                logger.info("yt-dlp not found locally, will download latest version")
+                self.logger.info(
+                    "yt-dlp not found locally, will download latest version"
+                )
                 return self.download_tool("yt-dlp")
 
             # Get latest version
             latest_version = self.get_latest_ytdlp_version()
             if not latest_version:
-                logger.warning(
+                self.logger.warning(
                     "Could not determine latest yt-dlp version, skipping update"
                 )
                 return True  # Don't fail if we can't check for updates
 
             # Compare versions
             if not self.compare_versions(current_version, latest_version):
-                logger.info(
+                self.logger.info(
                     f"yt-dlp is already up to date (current: {current_version})"
                 )
                 return True
 
-            logger.info(
+            self.logger.info(
                 f"yt-dlp update available: {current_version} -> {latest_version}"
             )
 
@@ -935,14 +949,14 @@ class ToolManager:
             backup_path = None
             if current_path and current_path.exists():
                 backup_path = current_path.with_suffix(f".backup-{current_version}")
-                logger.debug(f"Backing up current yt-dlp to {backup_path}")
+                self.logger.debug(f"Backing up current yt-dlp to {backup_path}")
                 shutil.copy2(current_path, backup_path)
 
             # Download new version
             success = self.download_tool("yt-dlp")
 
             if success:
-                logger.info(
+                self.logger.info(
                     f"Successfully updated yt-dlp from {current_version} to "
                     f"{latest_version}"
                 )
@@ -950,40 +964,44 @@ class ToolManager:
                 # Verify the new version
                 new_version = self.get_tool_version("yt-dlp")
                 if new_version and new_version != current_version:
-                    logger.info(f"yt-dlp update verified (new version: {new_version})")
+                    self.logger.info(
+                        f"yt-dlp update verified (new version: {new_version})"
+                    )
 
                     # Clean up backup if update was successful
                     if current_path and backup_path and backup_path.exists():
                         try:
                             backup_path.unlink()
-                            logger.debug("Removed backup file after successful update")
+                            self.logger.debug(
+                                "Removed backup file after successful update"
+                            )
                         except OSError as e:
-                            logger.warning(f"Could not remove backup file: {e}")
+                            self.logger.warning(f"Could not remove backup file: {e}")
                 else:
-                    logger.warning(
+                    self.logger.warning(
                         "Could not verify yt-dlp update, but download appeared "
                         "successful"
                     )
 
                 return True
             else:
-                logger.error("Failed to download new yt-dlp version")
+                self.logger.error("Failed to download new yt-dlp version")
 
                 # Restore backup if available
                 if current_path and backup_path and backup_path.exists():
                     try:
                         shutil.copy2(backup_path, current_path)
                         backup_path.unlink()
-                        logger.info(
+                        self.logger.info(
                             "Restored previous yt-dlp version after failed update"
                         )
                     except OSError as e:
-                        logger.error(
+                        self.logger.error(
                             f"Could not restore backup after failed update: {e}"
                         )
 
                 return False
 
         except Exception as e:
-            logger.error(f"Unexpected error during yt-dlp update check: {e}")
+            self.logger.error(f"Unexpected error during yt-dlp update check: {e}")
             return False

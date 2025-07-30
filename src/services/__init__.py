@@ -1,5 +1,6 @@
 """Business logic services for DVD Maker."""
 
+from .base import BaseService
 from .cache_manager import CacheManager
 from .converter import ConversionError, VideoConverter, VideoConverterError
 from .downloader import VideoDownloader, YtDlpError
@@ -18,6 +19,8 @@ from .tool_manager import (
 )
 
 __all__ = [
+    # Base Service
+    "BaseService",
     # Cache Manager
     "CacheManager",
     # Video Converter

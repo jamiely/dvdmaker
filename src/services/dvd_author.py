@@ -23,11 +23,10 @@ from ..services.tool_manager import ToolManager
 from ..utils.filename import normalize_to_ascii
 from ..utils.logging import get_logger
 from ..utils.time_format import format_duration_human_readable
+from .base import BaseService
 
 # Progress callback type
 ProgressCallback = Callable[[str, float], None]
-
-logger = get_logger(__name__)
 
 
 class DVDAuthorError(DVDMakerError):
@@ -76,6 +75,7 @@ class AuthoredDVD:
         self.video_ts_dir = video_ts_dir
         self.iso_file = iso_file
         self.creation_time = creation_time
+        self.logger = get_logger(__name__)
 
     @property
     def exists(self) -> bool:
@@ -103,30 +103,30 @@ class AuthoredDVD:
         # Check for any VTS (Video Title Set) files - these are the core content
         vts_ifo_files = list(self.video_ts_dir.glob("VTS_*_0.IFO"))
         if not vts_ifo_files:
-            logger.error("No VTS IFO files found")
+            self.logger.error("No VTS IFO files found")
             return False
 
         # Check for corresponding BUP files for each VTS
         for ifo_file in vts_ifo_files:
             bup_file = ifo_file.with_suffix(".BUP")
             if not bup_file.exists():
-                logger.error(f"Missing corresponding BUP file: {bup_file.name}")
+                self.logger.error(f"Missing corresponding BUP file: {bup_file.name}")
                 return False
 
         # Check for VTS VOB files (at least one should exist)
         vob_files = list(self.video_ts_dir.glob("VTS_*_*.VOB"))
         if not vob_files:
-            logger.error("No VTS VOB files found")
+            self.logger.error("No VTS VOB files found")
             return False
 
-        logger.debug(
+        self.logger.debug(
             f"DVD structure validation passed: {len(vts_ifo_files)} VTS sets, "
             f"{len(vob_files)} VOB files found"
         )
         return True
 
 
-class DVDAuthor:
+class DVDAuthor(BaseService):
     """Creates DVD structures using dvdauthor.
 
     This class handles:
@@ -157,12 +157,10 @@ class DVDAuthor:
             cache_manager: Cache manager for caching operations
             progress_callback: Optional callback for progress reporting
         """
-        self.settings = settings
+        super().__init__(settings)
         self.tool_manager = tool_manager
         self.cache_manager = cache_manager
         self.progress_callback = progress_callback
-
-        logger.debug("DVDAuthor initialized")
 
     def _create_playlist_output_dir(
         self, base_output_dir: Path, playlist_id: str
@@ -195,11 +193,13 @@ class DVDAuthor:
         try:
             # Create playlist-specific directory
             playlist_output_dir.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"Created playlist output directory: {playlist_output_dir}")
+            self.logger.debug(
+                f"Created playlist output directory: {playlist_output_dir}"
+            )
             return playlist_output_dir
 
         except OSError as e:
-            logger.error(
+            self.logger.error(
                 f"Failed to create playlist output directory {playlist_output_dir}: {e}"
             )
             raise DVDAuthoringError(f"Failed to create output directory: {e}") from e
@@ -213,7 +213,7 @@ class DVDAuthor:
         """
         if self.progress_callback:
             self.progress_callback(message, progress)
-        logger.debug(f"DVD Author Progress: {message} ({progress:.1%})")
+        self.logger.debug(f"DVD Author Progress: {message} ({progress:.1%})")
 
     def create_dvd_structure(
         self,
@@ -242,7 +242,7 @@ class DVDAuthor:
         # Create playlist-specific output directory
         playlist_output_dir = self._create_playlist_output_dir(output_dir, playlist_id)
 
-        logger.debug(
+        self.logger.debug(
             f"Creating DVD structure with {len(converted_videos)} videos: "
             f"'{menu_title}' in {playlist_output_dir}"
         )
@@ -263,12 +263,12 @@ class DVDAuthor:
         )
 
         if not dvd_structure.fits_on_dvd(self.DVD_CAPACITY_GB):
-            logger.warning(
+            self.logger.warning(
                 f"DVD capacity exceeded: {dvd_structure.size_gb:.2f}GB > "
                 f"{self.DVD_CAPACITY_GB}GB"
             )
             # Don't raise exception - create DVD with available videos
-            logger.warning("Continuing with DVD creation despite capacity warning")
+            self.logger.warning("Continuing with DVD creation despite capacity warning")
 
         # Create output directory structure within playlist directory
         video_ts_dir = playlist_output_dir / "VIDEO_TS"
@@ -315,7 +315,7 @@ class DVDAuthor:
                 authored_dvd.iso_file = iso_file
 
             self._report_progress("DVD creation complete", 1.0)
-            logger.info(
+            self.logger.info(
                 f"DVD creation completed successfully: {authored_dvd.size_gb:.2f}GB, "
                 f"{len(chapters)} chapters"
             )
@@ -326,7 +326,7 @@ class DVDAuthor:
             # Re-raise validation errors as-is for more specific error handling
             raise
         except Exception as e:
-            logger.error(f"DVD authoring failed: {e}")
+            self.logger.error(f"DVD authoring failed: {e}")
             raise DVDAuthoringError(f"Failed to create DVD structure: {e}") from e
 
     def _create_chapters(
@@ -340,7 +340,7 @@ class DVDAuthor:
         Returns:
             List of DVD chapters ordered by original playlist position
         """
-        logger.debug(f"Creating DVD chapters from {len(converted_videos)} videos")
+        self.logger.debug(f"Creating DVD chapters from {len(converted_videos)} videos")
 
         chapters = []
         current_time = 0
@@ -378,13 +378,13 @@ class DVDAuthor:
 
             duration_str = format_duration_human_readable(chapter.duration)
             start_time_str = format_duration_human_readable(chapter.start_time)
-            logger.debug(
+            self.logger.debug(
                 f"Created chapter {i}: {video.metadata.title} "
                 f"({duration_str}, starts at {start_time_str})"
             )
 
         total_duration_str = format_duration_human_readable(current_time)
-        logger.debug(
+        self.logger.debug(
             f"Created {len(chapters)} chapters with total duration {total_duration_str}"
         )
         return chapters
@@ -399,7 +399,7 @@ class DVDAuthor:
         Returns:
             Path to created XML file
         """
-        logger.debug(f"Creating dvdauthor XML for '{dvd_structure.menu_title}'")
+        self.logger.debug(f"Creating dvdauthor XML for '{dvd_structure.menu_title}'")
 
         # Create XML structure
         dvdauthor = ET.Element("dvdauthor", dest=str(video_ts_dir))
@@ -444,7 +444,7 @@ class DVDAuthor:
         tree = ET.ElementTree(dvdauthor)
         tree.write(xml_file, encoding="utf-8", xml_declaration=True)
 
-        logger.debug(f"Created dvdauthor XML: {xml_file}")
+        self.logger.debug(f"Created dvdauthor XML: {xml_file}")
         return xml_file
 
     def _normalize_video_path(self, video_path: Path) -> Path:
@@ -464,7 +464,9 @@ class DVDAuthor:
 
         # Copy file if normalization changed the name
         if ascii_filename != video_path.name and not normalized_path.exists():
-            logger.debug(f"Copying video for ASCII compatibility: {ascii_filename}")
+            self.logger.debug(
+                f"Copying video for ASCII compatibility: {ascii_filename}"
+            )
             import shutil
 
             shutil.copy2(video_path, normalized_path)
@@ -484,7 +486,7 @@ class DVDAuthor:
         Raises:
             DVDAuthoringError: If dvdauthor execution fails
         """
-        logger.debug("Running dvdauthor to create DVD structure")
+        self.logger.debug("Running dvdauthor to create DVD structure")
 
         try:
             dvdauthor_cmd = self.tool_manager.get_tool_command("dvdauthor")
@@ -500,7 +502,7 @@ class DVDAuthor:
         output_dir = video_ts_dir.parent
         cmd = dvdauthor_cmd + ["-o", str(output_dir), "-x", str(xml_file)]
 
-        logger.debug(f"Executing dvdauthor command: {' '.join(cmd)}")
+        self.logger.debug(f"Executing dvdauthor command: {' '.join(cmd)}")
 
         import time
 
@@ -518,18 +520,20 @@ class DVDAuthor:
             end_time = time.time()
             creation_time = end_time - start_time
 
-            logger.debug(f"dvdauthor completed successfully in {creation_time:.1f}s")
-            logger.debug(f"dvdauthor stdout: {result.stdout}")
+            self.logger.debug(
+                f"dvdauthor completed successfully in {creation_time:.1f}s"
+            )
+            self.logger.debug(f"dvdauthor stdout: {result.stdout}")
 
             if result.stderr:
-                logger.debug(f"dvdauthor stderr: {result.stderr}")
+                self.logger.debug(f"dvdauthor stderr: {result.stderr}")
 
             return creation_time
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"dvdauthor failed with exit code {e.returncode}")
-            logger.error(f"dvdauthor stdout: {e.stdout}")
-            logger.error(f"dvdauthor stderr: {e.stderr}")
+            self.logger.error(f"dvdauthor failed with exit code {e.returncode}")
+            self.logger.error(f"dvdauthor stdout: {e.stdout}")
+            self.logger.error(f"dvdauthor stderr: {e.stderr}")
             raise DVDAuthoringError(
                 f"dvdauthor execution failed: {e.stderr or e.stdout}"
             ) from e
@@ -550,7 +554,7 @@ class DVDAuthor:
         Raises:
             DVDAuthoringError: If ISO creation fails
         """
-        logger.debug("Creating ISO image from VIDEO_TS directory")
+        self.logger.debug("Creating ISO image from VIDEO_TS directory")
 
         # Create clean filename from title
         from ..utils.filename import normalize_to_ascii
@@ -585,7 +589,7 @@ class DVDAuthor:
             str(video_ts_dir.parent),
         ]
 
-        logger.debug(f"Executing ISO creation command: {' '.join(cmd)}")
+        self.logger.debug(f"Executing ISO creation command: {' '.join(cmd)}")
 
         try:
             result = subprocess.run(
@@ -595,18 +599,18 @@ class DVDAuthor:
                 check=True,
             )
 
-            logger.debug(f"ISO creation completed: {iso_file}")
-            logger.debug(f"ISO tool stdout: {result.stdout}")
+            self.logger.debug(f"ISO creation completed: {iso_file}")
+            self.logger.debug(f"ISO tool stdout: {result.stdout}")
 
             if result.stderr:
-                logger.debug(f"ISO tool stderr: {result.stderr}")
+                self.logger.debug(f"ISO tool stderr: {result.stderr}")
 
             return iso_file
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"ISO creation failed with exit code {e.returncode}")
-            logger.error(f"ISO tool stdout: {e.stdout}")
-            logger.error(f"ISO tool stderr: {e.stderr}")
+            self.logger.error(f"ISO creation failed with exit code {e.returncode}")
+            self.logger.error(f"ISO tool stdout: {e.stdout}")
+            self.logger.error(f"ISO tool stderr: {e.stderr}")
             raise DVDAuthoringError(
                 f"ISO creation failed: {e.stderr or e.stdout}"
             ) from e
@@ -626,7 +630,9 @@ class DVDAuthor:
         size_gb = total_size / (1024 * 1024 * 1024)
         fits = size_gb <= self.DVD_CAPACITY_GB
 
-        logger.debug(f"DVD capacity estimate: {size_gb:.2f}GB, fits on DVD: {fits}")
+        self.logger.debug(
+            f"DVD capacity estimate: {size_gb:.2f}GB, fits on DVD: {fits}"
+        )
 
         return size_gb, fits
 
@@ -646,13 +652,13 @@ class DVDAuthor:
         for video in converted_videos:
             if video.exists and video.file_size > 0:
                 successful_videos.append(video)
-                logger.debug(f"Including video: {video.metadata.title}")
+                self.logger.debug(f"Including video: {video.metadata.title}")
             else:
-                logger.warning(
+                self.logger.warning(
                     f"Excluding missing/invalid video: {video.metadata.title}"
                 )
 
-        logger.info(
+        self.logger.info(
             f"Found {len(successful_videos)}/{len(converted_videos)} "
             f"successfully converted videos"
         )

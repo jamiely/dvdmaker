@@ -6,7 +6,11 @@ from src.exceptions import DVDMakerError
 from src.services.converter import ConversionError, VideoConverterError
 from src.services.downloader import YtDlpError
 from src.services.dvd_author import DVDAuthorError, DVDAuthoringError
-from src.services.tool_manager import ToolDownloadError, ToolManagerError, ToolValidationError
+from src.services.tool_manager import (
+    ToolDownloadError,
+    ToolManagerError,
+    ToolValidationError,
+)
 
 
 class TestDVDMakerError:
@@ -22,7 +26,7 @@ class TestDVDMakerError:
         """Test creating an error with context."""
         context = {"video_id": "abc123", "operation": "download"}
         error = DVDMakerError("Test error with context", context)
-        
+
         assert "Test error with context" in str(error)
         assert "video_id=abc123" in str(error)
         assert "operation=download" in str(error)
@@ -102,7 +106,7 @@ class TestErrorContextPropagation:
         """Test that service errors can use context."""
         context = {"tool": "ffmpeg", "command": "--version"}
         error = ToolValidationError("Tool validation failed", context)
-        
+
         assert isinstance(error, DVDMakerError)
         assert error.context == context
         assert "tool=ffmpeg" in str(error)
@@ -112,13 +116,13 @@ class TestErrorContextPropagation:
         """Test that nested service errors maintain context."""
         context = {"video_file": "/path/to/video.mp4", "format": "mpeg2"}
         error = ConversionError("Video conversion failed", context)
-        
+
         # Should inherit from all parent classes
         assert isinstance(error, ConversionError)
         assert isinstance(error, VideoConverterError)
         assert isinstance(error, DVDMakerError)
         assert isinstance(error, Exception)
-        
+
         # Should maintain context
         assert error.context == context
         assert "video_file=/path/to/video.mp4" in str(error)
@@ -132,14 +136,14 @@ class TestErrorCatchingPatterns:
         errors_to_test = [
             VideoConverterError("Test"),
             ConversionError("Test"),
-            YtDlpError("Test"), 
+            YtDlpError("Test"),
             DVDAuthorError("Test"),
             DVDAuthoringError("Test"),
             ToolManagerError("Test"),
             ToolDownloadError("Test"),
             ToolValidationError("Test"),
         ]
-        
+
         for error in errors_to_test:
             try:
                 raise error

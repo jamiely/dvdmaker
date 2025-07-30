@@ -9,25 +9,25 @@ from typing import Any, Dict, Optional
 
 class DVDMakerError(Exception):
     """Base exception for all DVD Maker errors.
-    
+
     This class provides a common base for all DVD Maker exceptions with
     support for additional error context that can be useful for debugging
     and error reporting.
-    
+
     Attributes:
         context: Optional dictionary containing additional error context
     """
-    
+
     def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
         """Initialize the DVD Maker error.
-        
+
         Args:
             message: The error message
             context: Optional dictionary with additional error context
         """
         super().__init__(message)
         self.context = context or {}
-    
+
     def __str__(self) -> str:
         """Return string representation of the error."""
         base_message = super().__str__()
