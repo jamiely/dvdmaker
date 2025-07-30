@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config.settings import Settings
+from ..exceptions import DVDMakerError
 from ..models.playlist import Playlist, PlaylistMetadata, VideoStatus
 from ..models.video import VideoMetadata
 from ..services.cache_manager import CacheManager
@@ -18,7 +19,7 @@ from ..utils.progress import ProgressCallback, ProgressTracker, SilentProgressCa
 logger = get_logger(__name__)
 
 
-class YtDlpError(Exception):
+class YtDlpError(DVDMakerError):
     """Exception raised when yt-dlp operations fail."""
 
     pass

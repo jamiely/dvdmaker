@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import requests
 
 from ..config.settings import Settings
+from ..exceptions import DVDMakerError
 from ..utils.logging import get_logger
 from ..utils.platform import (
     get_download_url,
@@ -31,7 +32,7 @@ ProgressCallback = Callable[[str, float], None]
 logger = get_logger(__name__)
 
 
-class ToolManagerError(Exception):
+class ToolManagerError(DVDMakerError):
     """Base exception for tool manager errors."""
 
     pass

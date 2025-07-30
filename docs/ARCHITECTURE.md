@@ -307,24 +307,8 @@ class BaseService:
         pass
 ```
 
-#### 3. Error Hierarchy Consolidation
 
-**Issue**: While each service has well-defined exceptions, they could benefit from a common base class for consistent error handling.
-
-**Recommended Solution**:
-```python
-class DVDMakerError(Exception):
-    """Base exception for all DVD Maker errors."""
-    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None):
-        super().__init__(message)
-        self.context = context or {}
-
-# Service-specific errors inherit from base
-class VideoConverterError(DVDMakerError):
-    pass
-```
-
-#### 4. Tool Path Resolution Duplication ✅ **COMPLETED**
+#### 3. Tool Path Resolution Duplication ✅ **COMPLETED**
 
 **Issue**: Tool path resolution logic was duplicated across services that use external tools.
 
@@ -338,6 +322,21 @@ class VideoConverterError(DVDMakerError):
 - Updated all tests to reflect the new centralized architecture
 
 **Result**: Eliminated code duplication, improved maintainability, and provided consistent tool management across all services.
+
+#### 4. Error Hierarchy Consolidation ✅ **COMPLETED**
+
+**Issue**: While each service had well-defined exceptions, they could benefit from a common base class for consistent error handling.
+
+**Implemented Solution**: Created a common base exception class while keeping each service's exceptions defined in their own domain modules.
+
+**Changes Made**:
+- Created `DVDMakerError` base exception in `src/exceptions.py` with optional context support
+- Updated all service exceptions to inherit from `DVDMakerError` while keeping them in their respective modules
+- Enhanced error string representation to include context information
+- Added comprehensive tests for the exception hierarchy
+- Maintained domain separation - each service keeps its own exception definitions
+
+**Result**: All DVD Maker exceptions now share a common base class with consistent context support, enabling better error handling patterns while preserving domain boundaries.
 
 ### Code Quality Improvements
 

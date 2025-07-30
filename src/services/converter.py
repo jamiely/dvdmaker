@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..config.settings import Settings
+from ..exceptions import DVDMakerError
 from ..models.video import VideoFile, VideoMetadata
 from ..services.cache_manager import CacheManager
 from ..services.tool_manager import ToolManager
@@ -24,7 +25,7 @@ ProgressCallback = Callable[[str, float], None]
 logger = get_logger(__name__)
 
 
-class VideoConverterError(Exception):
+class VideoConverterError(DVDMakerError):
     """Base exception for video converter errors."""
 
     pass

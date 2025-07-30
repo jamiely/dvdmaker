@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from ..config.settings import Settings
+from ..exceptions import DVDMakerError
 from ..models.dvd import DVDChapter, DVDStructure
 from ..models.video import VideoFile, VideoMetadata
 from ..services.cache_manager import CacheManager
@@ -29,7 +30,7 @@ ProgressCallback = Callable[[str, float], None]
 logger = get_logger(__name__)
 
 
-class DVDAuthorError(Exception):
+class DVDAuthorError(DVDMakerError):
     """Base exception for DVD authoring errors."""
 
     pass
