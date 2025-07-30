@@ -7,11 +7,65 @@ environment variable support, and file-based configuration loading.
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from ..exceptions import DVDMakerError
+
+
+class ConfigurationError(DVDMakerError):
+    """Exception raised for configuration validation errors."""
+
+    pass
+
+
+class ValidationResult:
+    """Container for validation results with error details."""
+
+    def __init__(self) -> None:
+        self.errors: List[str] = []
+        self.warnings: List[str] = []
+
+    def add_error(self, error: str) -> None:
+        """Add a validation error."""
+        self.errors.append(error)
+
+    def add_warning(self, warning: str) -> None:
+        """Add a validation warning."""
+        self.warnings.append(warning)
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if validation passed (no errors)."""
+        return len(self.errors) == 0
+
+    @property
+    def has_warnings(self) -> bool:
+        """Check if validation has warnings."""
+        return len(self.warnings) > 0
+
+    def get_summary(self) -> str:
+        """Get a summary of validation results."""
+        parts = []
+        if self.errors:
+            parts.append(f"{len(self.errors)} error(s)")
+        if self.warnings:
+            parts.append(f"{len(self.warnings)} warning(s)")
+        return ", ".join(parts) if parts else "validation passed"
+
+    def raise_if_invalid(self) -> None:
+        """Raise ConfigurationError if validation failed."""
+        if not self.is_valid:
+            error_msg = "Configuration validation failed:\n" + "\n".join(
+                f"  - {error}" for error in self.errors
+            )
+            raise ConfigurationError(
+                error_msg, {"errors": self.errors, "warnings": self.warnings}
+            )
 
 
 class Settings(BaseSettings):
@@ -136,6 +190,202 @@ class Settings(BaseSettings):
             raise ValueError("Cannot use both --quiet and --verbose flags")
         return v
 
+    @model_validator(mode="after")
+    def validate_cross_field_constraints(self) -> "Settings":
+        """Comprehensive cross-field validation."""
+        result: ValidationResult = ValidationResult()
+
+        # Validate directory configurations
+        self._validate_directory_config(result)
+
+        # Validate logging configuration
+        self._validate_logging_config(result)
+
+        # Validate tool configuration
+        self._validate_tool_config(result)
+
+        # Validate DVD configuration
+        self._validate_dvd_config(result)
+
+        # Validate performance/resource settings
+        self._validate_resource_config(result)
+
+        # Raise if validation failed
+        result.raise_if_invalid()
+
+        return self
+
+    def _validate_directory_config(self, result: ValidationResult) -> None:
+        """Validate directory configuration."""
+        directories = {
+            "cache_dir": self.cache_dir,
+            "output_dir": self.output_dir,
+            "temp_dir": self.temp_dir,
+            "bin_dir": self.bin_dir,
+            "log_dir": self.log_dir,
+        }
+
+        # Check for directory conflicts (same directory used for different purposes)
+        resolved_dirs: Dict[str, Path] = {}
+        for name, path in directories.items():
+            resolved = path.resolve()
+            if resolved in resolved_dirs.values():
+                conflict_name = next(
+                    n for n, p in resolved_dirs.items() if p == resolved
+                )
+                result.add_error(
+                    f"Directory conflict: {name} and {conflict_name} "
+                    f"resolve to the same path: {resolved}"
+                )
+            resolved_dirs[name] = resolved
+
+        # Check for nested directory issues
+        for name1, path1 in directories.items():
+            for name2, path2 in directories.items():
+                if name1 != name2:
+                    try:
+                        if (
+                            path1.resolve() != path2.resolve()
+                            and path1.resolve().is_relative_to(path2.resolve())
+                        ):
+                            result.add_warning(
+                                f"{name1} ({path1}) is nested inside {name2} ({path2})"
+                            )
+                    except (OSError, ValueError):
+                        # Handle cases where paths can't be resolved
+                        pass
+
+        # Check directory accessibility
+        for name, path in directories.items():
+            parent = path.parent if not path.exists() else path
+            if parent.exists():
+                if not os.access(parent, os.R_OK):
+                    result.add_error(
+                        f"{name} parent directory is not readable: {parent}"
+                    )
+                if not os.access(parent, os.W_OK):
+                    result.add_error(
+                        f"{name} parent directory is not writable: {parent}"
+                    )
+
+    def _validate_logging_config(self, result: ValidationResult) -> None:
+        """Validate logging configuration."""
+        # Check log file size limits
+        if self.log_file_max_size > 100 * 1024 * 1024:  # 100MB
+            size_mb = self.log_file_max_size / (1024 * 1024)
+            result.add_warning(f"Log file max size is quite large: {size_mb:.1f}MB")
+
+        if self.log_file_backup_count > 20:
+            result.add_warning(
+                f"Log file backup count is quite high: {self.log_file_backup_count}"
+            )
+
+        # Check for potential disk space issues
+        total_log_space = self.log_file_max_size * (self.log_file_backup_count + 1)
+        if total_log_space > 500 * 1024 * 1024:  # 500MB
+            total_mb = total_log_space / (1024 * 1024)
+            result.add_warning(
+                f"Total log file space usage could reach {total_mb:.1f}MB"
+            )
+
+    def _validate_tool_config(self, result: ValidationResult) -> None:
+        """Validate tool configuration."""
+        if self.use_system_tools and not self.download_tools:
+            # This is fine - using only system tools
+            pass
+        elif not self.use_system_tools and not self.download_tools:
+            result.add_error(
+                "Cannot disable both system tools and tool downloads - "
+                "no tools would be available"
+            )
+
+        # Validate download rate limit format
+        if self.download_rate_limit:
+            import re
+
+            if not re.match(r"^\d+[KMG]?$", self.download_rate_limit, re.IGNORECASE):
+                result.add_error(
+                    f"Invalid download rate limit format: {self.download_rate_limit} "
+                    "(expected format: 1M, 500K, etc.)"
+                )
+
+    def _validate_dvd_config(self, result: ValidationResult) -> None:
+        """Validate DVD configuration."""
+        # Check for menu title length constraints
+        if self.menu_title and len(self.menu_title) > 100:
+            title_len = len(self.menu_title)
+            result.add_warning(
+                f"Menu title is quite long ({title_len} chars) - "
+                "may be truncated in DVD player"
+            )
+
+        # Check for non-ASCII characters in menu title
+        if self.menu_title:
+            try:
+                self.menu_title.encode("ascii")
+            except UnicodeEncodeError:
+                result.add_warning(
+                    "Menu title contains non-ASCII characters - "
+                    "will be normalized for DVD compatibility"
+                )
+
+    def _validate_resource_config(self, result: ValidationResult) -> None:
+        """Validate resource and performance configuration."""
+        # Check if we're forcing both download and convert (may use excessive space)
+        if self.force_download and self.force_convert:
+            result.add_warning(
+                "Both force_download and force_convert are enabled - "
+                "this may use significant disk space"
+            )
+
+        # Check available disk space for configured directories
+        try:
+            for name, path in [
+                ("cache", self.cache_dir),
+                ("output", self.output_dir),
+                ("temp", self.temp_dir),
+            ]:
+                if path.exists() or path.parent.exists():
+                    check_path = path if path.exists() else path.parent
+                    usage = shutil.disk_usage(check_path)
+                    free_gb = usage.free / (1024**3)
+                    if free_gb < 1.0:  # Less than 1GB free
+                        result.add_error(
+                            f"Insufficient disk space for {name} directory "
+                            f"({check_path}): only {free_gb:.1f}GB available"
+                        )
+                    elif free_gb < 5.0:  # Less than 5GB free
+                        result.add_warning(
+                            f"Low disk space for {name} directory "
+                            f"({check_path}): only {free_gb:.1f}GB available"
+                        )
+        except (OSError, AttributeError):
+            # Can't check disk space on this system
+            pass
+
+    def validate_comprehensive(self) -> ValidationResult:
+        """Perform comprehensive validation and return detailed results.
+
+        This method provides detailed validation results without raising exceptions,
+        allowing callers to handle validation issues as appropriate.
+
+        Returns:
+            ValidationResult with detailed error and warning information
+        """
+        result: ValidationResult = ValidationResult()
+
+        # Re-run all validation checks
+        try:
+            self._validate_directory_config(result)
+            self._validate_logging_config(result)
+            self._validate_tool_config(result)
+            self._validate_dvd_config(result)
+            self._validate_resource_config(result)
+        except Exception as e:
+            result.add_error(f"Validation error: {e}")
+
+        return result
+
     def create_directories(self) -> None:
         """Create all configured directories if they don't exist."""
         directories = [
@@ -226,20 +476,38 @@ def get_default_config_file() -> Path:
     return Path.home() / ".config" / "dvdmaker" / "config.json"
 
 
-def load_settings(config_file: Optional[Path] = None) -> Settings:
+def load_settings(
+    config_file: Optional[Path] = None, validate: bool = True
+) -> Settings:
     """Load application settings from configuration file and environment.
 
     Args:
         config_file: Optional path to configuration file.
                     If None, uses default location.
+        validate: Whether to perform comprehensive validation and show warnings.
 
     Returns:
         Settings instance with loaded configuration.
+
+    Raises:
+        ConfigurationError: If validation fails with errors.
     """
     if config_file is None:
         config_file = get_default_config_file()
 
     settings = Settings.load_config(config_file)
+
+    # Perform comprehensive validation if requested
+    if validate:
+        validation_result = settings.validate_comprehensive()
+
+        # Log warnings
+        for warning in validation_result.warnings:
+            logging.warning(f"Configuration warning: {warning}")
+
+        # Show validation summary if there are warnings
+        if validation_result.has_warnings:
+            logging.info(f"Configuration validation: {validation_result.get_summary()}")
 
     # Create necessary directories
     try:
@@ -248,3 +516,27 @@ def load_settings(config_file: Optional[Path] = None) -> Settings:
         logging.warning(f"Failed to create some directories: {e}")
 
     return settings
+
+
+def validate_settings(settings: Settings, strict: bool = False) -> ValidationResult:
+    """Validate settings configuration and return detailed results.
+
+    This is a convenience function for validating settings objects
+    without having to know the internal validation methods.
+
+    Args:
+        settings: Settings object to validate
+        strict: If True, treats warnings as errors
+
+    Returns:
+        ValidationResult with detailed validation information
+    """
+    result = settings.validate_comprehensive()
+
+    if strict and result.has_warnings:
+        # Convert warnings to errors in strict mode
+        for warning in result.warnings:
+            result.add_error(f"Strict mode: {warning}")
+        result.warnings.clear()
+
+    return result

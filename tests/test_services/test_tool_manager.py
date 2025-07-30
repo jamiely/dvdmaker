@@ -718,7 +718,9 @@ class TestToolManagerSettings:
 
     def test_download_tools_disabled(self):
         """Test behavior when download_tools is disabled."""
-        settings = Settings(bin_dir=Path("/tmp/test_bin"), download_tools=False)
+        settings = Settings(
+            bin_dir=Path("/tmp/test_bin"), download_tools=False, use_system_tools=True
+        )
         tool_manager = ToolManager(settings)
 
         with patch.object(tool_manager, "check_tools") as mock_check:
