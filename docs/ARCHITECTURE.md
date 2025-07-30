@@ -324,11 +324,20 @@ class VideoConverterError(DVDMakerError):
     pass
 ```
 
-#### 4. Tool Path Resolution Duplication
+#### 4. Tool Path Resolution Duplication ✅ **COMPLETED**
 
-**Issue**: Tool path resolution logic is duplicated across services that use external tools.
+**Issue**: Tool path resolution logic was duplicated across services that use external tools.
 
-**Recommended Solution**: Centralize tool path resolution in `ToolManager` and provide a consistent interface for all services.
+**Implemented Solution**: Centralized tool path resolution in `ToolManager` and provided a consistent interface for all services.
+
+**Changes Made**:
+- Refactored `VideoDownloader`, `VideoConverter`, and `DVDAuthor` to use `ToolManager.get_tool_command()`
+- Removed duplicate tool path resolution logic from individual services
+- Standardized tool availability checking through `ToolManager.is_tool_available_locally()`
+- Enhanced error handling for missing tools with centralized messaging
+- Updated all tests to reflect the new centralized architecture
+
+**Result**: Eliminated code duplication, improved maintainability, and provided consistent tool management across all services.
 
 ### Code Quality Improvements
 
