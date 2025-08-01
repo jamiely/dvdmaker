@@ -193,8 +193,12 @@ class VideoDownloader(BaseService):
 
             result = self._run_yt_dlp(args)
 
+            # Cache the raw yt-dlp JSON output for future reference
+            raw_json_output = result.stdout.strip()
+            self.cache_manager.store_playlist_raw_json(playlist_id, raw_json_output)
+
             # Parse first line to get playlist metadata
-            lines = result.stdout.strip().split("\n")
+            lines = raw_json_output.split("\n")
             if not lines:
                 raise YtDlpError("No output from yt-dlp playlist extraction")
 
@@ -247,16 +251,30 @@ class VideoDownloader(BaseService):
         tracker = ProgressTracker(1, callback, "Extracting video metadata...")
 
         try:
-            # Build yt-dlp command for video extraction
-            args = self._get_base_yt_dlp_args() + [
-                "--flat-playlist",
-                "--dump-json",
-                playlist_url,
-            ]
+            playlist_id = self._extract_playlist_id(playlist_url)
 
-            result = self._run_yt_dlp(args)
+            # Check if we have cached raw JSON first
+            cached_raw_json = self.cache_manager.get_cached_playlist_raw_json(
+                playlist_id
+            )
+            if cached_raw_json:
+                self.logger.debug(f"Using cached raw JSON for playlist {playlist_id}")
+                raw_json_output = cached_raw_json
+            else:
+                # Build yt-dlp command for video extraction
+                args = self._get_base_yt_dlp_args() + [
+                    "--flat-playlist",
+                    "--dump-json",
+                    playlist_url,
+                ]
 
-            lines = result.stdout.strip().split("\n")
+                result = self._run_yt_dlp(args)
+                raw_json_output = result.stdout.strip()
+
+                # Cache the raw JSON for future use
+                self.cache_manager.store_playlist_raw_json(playlist_id, raw_json_output)
+
+            lines = raw_json_output.split("\n")
             if len(lines) < 2:  # At least playlist + one video
                 raise YtDlpError("Playlist appears to be empty or invalid")
 

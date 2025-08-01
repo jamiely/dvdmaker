@@ -212,6 +212,23 @@ class CacheManager(BaseService):
         )
         return cache_path
 
+    def get_playlist_raw_json_cache_path(self, playlist_id: str) -> Path:
+        """Get cache path for raw yt-dlp playlist JSON file.
+
+        Args:
+            playlist_id: Playlist ID (used as cache key)
+
+        Returns:
+            Path to cached raw yt-dlp JSON file
+        """
+        cache_filename = f"playlist_{playlist_id}_raw.json"
+        cache_path = self.metadata_dir / cache_filename
+
+        self.logger.trace(  # type: ignore[attr-defined]
+            f"Raw playlist JSON cache path for {playlist_id}: {cache_path}"
+        )
+        return cache_path
+
     def is_download_cached(self, video_id: str, format_ext: str = "mp4") -> bool:
         """Check if video download is cached and valid.
 
@@ -722,6 +739,72 @@ class CacheManager(BaseService):
         except (json.JSONDecodeError, KeyError, OSError) as e:
             self.logger.warning(
                 f"Failed to retrieve cached playlist metadata for {playlist_id}: {e}"
+            )
+            return None
+
+    def store_playlist_raw_json(self, playlist_id: str, raw_json_output: str) -> None:
+        """Store raw yt-dlp JSON output for playlist in cache.
+
+        Args:
+            playlist_id: Playlist ID (cache key)
+            raw_json_output: Raw yt-dlp JSON output string
+        """
+        self.logger.debug(f"Storing raw JSON for playlist {playlist_id}")
+
+        cache_path = self.get_playlist_raw_json_cache_path(playlist_id)
+        lock_path = self._get_lock_path("playlist_raw_json", playlist_id)
+
+        # Use retryable file locking to prevent concurrent access
+        try:
+            with RetryableLock(lock_path, timeout=30.0, max_retries=3, retry_delay=0.2):
+                self.logger.debug(f"Acquired raw JSON lock for {playlist_id}")
+
+                try:
+                    # Write raw JSON output directly to file
+                    with open(cache_path, "w", encoding="utf-8") as f:
+                        f.write(raw_json_output)
+
+                    self.logger.debug(
+                        f"Successfully cached raw JSON for playlist {playlist_id}"
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to store raw JSON: {e}")
+                    raise RuntimeError(f"Failed to store raw JSON: {e}")
+
+        except (OSError, TimeoutError) as e:
+            self.logger.error(
+                f"Concurrent access conflict while storing raw JSON for "
+                f"{playlist_id}: {e}"
+            )
+            raise RuntimeError(f"Failed to acquire raw JSON lock: {e}") from e
+
+    def get_cached_playlist_raw_json(self, playlist_id: str) -> Optional[str]:
+        """Retrieve cached raw yt-dlp JSON output for playlist.
+
+        Args:
+            playlist_id: Playlist ID to retrieve
+
+        Returns:
+            Raw yt-dlp JSON output string if cached, None otherwise
+        """
+        cache_path = self.get_playlist_raw_json_cache_path(playlist_id)
+
+        if not cache_path.exists():
+            self.logger.trace(  # type: ignore[attr-defined]
+                f"No cached raw JSON found for playlist {playlist_id}"
+            )
+            return None
+
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                raw_json = f.read()
+
+            self.logger.debug(f"Retrieved cached raw JSON for playlist {playlist_id}")
+            return raw_json
+
+        except OSError as e:
+            self.logger.warning(
+                f"Failed to retrieve cached raw JSON for playlist {playlist_id}: {e}"
             )
             return None
 

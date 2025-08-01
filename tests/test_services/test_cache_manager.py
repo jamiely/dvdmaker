@@ -517,6 +517,77 @@ class TestPlaylistMetadataCaching:
         assert result is None
 
 
+class TestPlaylistRawJsonCaching:
+    """Test cases for raw yt-dlp JSON caching."""
+
+    def test_get_playlist_raw_json_cache_path(self, cache_manager):
+        """Test raw JSON cache path generation."""
+        playlist_id = "test_playlist_456"
+
+        expected_path = (
+            cache_manager.metadata_dir / "playlist_test_playlist_456_raw.json"
+        )
+        actual_path = cache_manager.get_playlist_raw_json_cache_path(playlist_id)
+
+        assert actual_path == expected_path
+
+    def test_store_playlist_raw_json(self, cache_manager):
+        """Test storing raw yt-dlp JSON output."""
+        playlist_id = "test_playlist"
+        raw_json = (
+            '{"title": "Test Playlist", "id": "test_playlist"}\n'
+            '{"title": "Video 1", "id": "video1"}\n'
+            '{"title": "Video 2", "id": "video2"}'
+        )
+
+        cache_manager.store_playlist_raw_json(playlist_id, raw_json)
+
+        cache_path = cache_manager.get_playlist_raw_json_cache_path(playlist_id)
+        assert cache_path.exists()
+
+        # Verify content
+        with open(cache_path, "r", encoding="utf-8") as f:
+            stored_content = f.read()
+        assert stored_content == raw_json
+
+    def test_get_cached_playlist_raw_json_success(self, cache_manager):
+        """Test retrieval of cached raw JSON."""
+        playlist_id = "test_playlist"
+        raw_json = (
+            '{"title": "Test Playlist", "id": "test_playlist"}\n'
+            '{"title": "Video 1", "id": "video1"}'
+        )
+
+        # Store first
+        cache_manager.store_playlist_raw_json(playlist_id, raw_json)
+
+        # Retrieve
+        result = cache_manager.get_cached_playlist_raw_json(playlist_id)
+        assert result == raw_json
+
+    def test_get_cached_playlist_raw_json_not_found(self, cache_manager):
+        """Test retrieval of non-existent raw JSON."""
+        result = cache_manager.get_cached_playlist_raw_json("nonexistent_playlist")
+        assert result is None
+
+    def test_get_cached_playlist_raw_json_read_error(self, cache_manager):
+        """Test retrieval with file read error."""
+        playlist_id = "test_playlist"
+        cache_path = cache_manager.get_playlist_raw_json_cache_path(playlist_id)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create a file but make it unreadable (simulate permission error)
+        cache_path.write_text("test content")
+        cache_path.chmod(0o000)  # Remove all permissions
+
+        try:
+            result = cache_manager.get_cached_playlist_raw_json(playlist_id)
+            assert result is None
+        finally:
+            # Restore permissions for cleanup
+            cache_path.chmod(0o644)
+
+
 class TestFilenameMapping:
     """Tests for filename mapping functionality."""
 

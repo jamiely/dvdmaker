@@ -240,7 +240,8 @@ class TestVideoDownloader:
             "description": sample_playlist_metadata.description,
         }
         video_json = {"id": "video1", "title": "Video 1"}
-        mock_result.stdout = f"{json.dumps(playlist_json)}\n{json.dumps(video_json)}"
+        raw_json_output = f"{json.dumps(playlist_json)}\n{json.dumps(video_json)}"
+        mock_result.stdout = raw_json_output
         mock_run.return_value = mock_result
 
         url = "https://www.youtube.com/playlist?list=test_playlist_id"
@@ -251,6 +252,10 @@ class TestVideoDownloader:
         assert result.description == sample_playlist_metadata.description
         assert result.video_count == 1  # One video line
         downloader.cache_manager.store_playlist_metadata.assert_called_once()
+        # Verify raw JSON was cached
+        downloader.cache_manager.store_playlist_raw_json.assert_called_once_with(
+            "test_playlist_id", raw_json_output
+        )
 
     @patch.object(VideoDownloader, "_run_yt_dlp")
     def test_extract_playlist_metadata_cached(
@@ -271,6 +276,9 @@ class TestVideoDownloader:
     @patch.object(VideoDownloader, "_run_yt_dlp")
     def test_extract_playlist_videos_success(self, mock_run, downloader):
         """Test successful playlist video extraction."""
+        # Mock no cached raw JSON
+        downloader.cache_manager.get_cached_playlist_raw_json.return_value = None
+
         # Mock yt-dlp output
         mock_result = Mock()
         playlist_json = {"title": "Test Playlist"}
@@ -288,11 +296,12 @@ class TestVideoDownloader:
             "duration": 200,
             "url": "https://youtube.com/watch?v=video2",
         }
-        mock_result.stdout = (
+        raw_json_output = (
             f"{json.dumps(playlist_json)}\n"
             f"{json.dumps(video1_json)}\n"
             f"{json.dumps(video2_json)}"
         )
+        mock_result.stdout = raw_json_output
         mock_run.return_value = mock_result
 
         url = "https://www.youtube.com/playlist?list=test_playlist_id"
@@ -305,10 +314,50 @@ class TestVideoDownloader:
         assert result[1].video_id == "video2"
         assert result[1].title == "Video 2"
         assert result[1].duration == 200
+        # Verify raw JSON was cached
+        downloader.cache_manager.store_playlist_raw_json.assert_called_once_with(
+            "test_playlist_id", raw_json_output
+        )
+
+    @patch.object(VideoDownloader, "_run_yt_dlp")
+    def test_extract_playlist_videos_cached_raw_json(self, mock_run, downloader):
+        """Test playlist video extraction using cached raw JSON."""
+        # Mock cached raw JSON found
+        cached_raw_json = (
+            '{"title": "Cached Playlist"}\n'
+            '{"id": "cached_video1", "title": "Cached Video 1", "duration": 150, '
+            '"url": "https://youtube.com/watch?v=cached_video1"}\n'
+            '{"id": "cached_video2", "title": "Cached Video 2", "duration": 250, '
+            '"url": "https://youtube.com/watch?v=cached_video2"}'
+        )
+        downloader.cache_manager.get_cached_playlist_raw_json.return_value = (
+            cached_raw_json
+        )
+
+        url = "https://www.youtube.com/playlist?list=test_playlist_id"
+        result = downloader.extract_playlist_videos(url)
+
+        assert len(result) == 2
+        assert result[0].video_id == "cached_video1"
+        assert result[0].title == "Cached Video 1"
+        assert result[0].duration == 150
+        assert result[0].url == "https://youtube.com/watch?v=cached_video1"
+        assert result[1].video_id == "cached_video2"
+        assert result[1].title == "Cached Video 2"
+        assert result[1].duration == 250
+        assert result[1].url == "https://youtube.com/watch?v=cached_video2"
+
+        # yt-dlp should not be called when using cached raw JSON
+        mock_run.assert_not_called()
+        # store_playlist_raw_json should not be called when using cached data
+        downloader.cache_manager.store_playlist_raw_json.assert_not_called()
 
     @patch.object(VideoDownloader, "_run_yt_dlp")
     def test_extract_playlist_videos_empty(self, mock_run, downloader):
         """Test playlist video extraction with empty playlist."""
+        # Mock no cached raw JSON
+        downloader.cache_manager.get_cached_playlist_raw_json.return_value = None
+
         # Mock yt-dlp output with only playlist metadata
         mock_result = Mock()
         playlist_json = {"title": "Empty Playlist"}
@@ -509,6 +558,122 @@ class TestVideoDownloader:
 
         with pytest.raises(YtDlpError, match="Failed to get download info"):
             downloader.get_download_info(url)
+
+
+class TestRawJsonCachingIntegration:
+    """Test cases for raw yt-dlp JSON caching integration in downloader."""
+
+    @patch.object(VideoDownloader, "_run_yt_dlp")
+    def test_extract_playlist_videos_cached_json_parsing_error(
+        self, mock_run, downloader
+    ):
+        """Test handling of corrupted cached raw JSON."""
+        # Mock cached raw JSON with invalid JSON
+        downloader.cache_manager.get_cached_playlist_raw_json.return_value = (
+            "invalid json\n{malformed}"
+        )
+
+        url = "https://www.youtube.com/playlist?list=test_playlist_id"
+
+        # Should handle JSON parsing errors gracefully and return empty list
+        # (after failing to parse, it continues with remaining lines)
+        result = downloader.extract_playlist_videos(url)
+        assert result == []  # No valid videos extracted due to JSON parsing errors
+
+    @patch.object(VideoDownloader, "_run_yt_dlp")
+    def test_raw_json_caching_integration_with_metadata_extraction(
+        self, mock_run, downloader
+    ):
+        """Test that raw JSON caching works correctly with metadata extraction."""
+        # Mock no cached metadata
+        downloader.cache_manager.get_cached_playlist_metadata.return_value = None
+
+        # Mock yt-dlp output for metadata extraction (include required URL field)
+        mock_result = Mock()
+        playlist_json = {"title": "Integration Test Playlist", "description": "Test"}
+        video_json = {
+            "id": "integration_video",
+            "title": "Integration Video",
+            "url": "https://youtube.com/watch?v=integration_video",
+            "duration": 120,
+        }
+        raw_json_output = f"{json.dumps(playlist_json)}\n{json.dumps(video_json)}"
+        mock_result.stdout = raw_json_output
+        mock_run.return_value = mock_result
+
+        url = "https://www.youtube.com/playlist?list=integration_test"
+
+        # Extract metadata first (should cache raw JSON)
+        metadata_result = downloader.extract_playlist_metadata(url)
+        assert metadata_result.playlist_id == "integration_test"
+        assert metadata_result.title == "Integration Test Playlist"
+
+        # Verify raw JSON was cached during metadata extraction
+        downloader.cache_manager.store_playlist_raw_json.assert_called_with(
+            "integration_test", raw_json_output
+        )
+
+        # Reset mock for video extraction
+        mock_run.reset_mock()
+
+        # Mock that cached raw JSON is now available
+        downloader.cache_manager.get_cached_playlist_raw_json.return_value = (
+            raw_json_output
+        )
+
+        # Extract videos (should use cached raw JSON, not call yt-dlp again)
+        video_result = downloader.extract_playlist_videos(url)
+        assert len(video_result) == 1
+        assert video_result[0].video_id == "integration_video"
+        assert video_result[0].title == "Integration Video"
+        assert video_result[0].url == "https://youtube.com/watch?v=integration_video"
+
+        # yt-dlp should not be called for video extraction when raw JSON is cached
+        mock_run.assert_not_called()
+
+    def test_raw_json_caching_with_extract_full_playlist(self, downloader):
+        """Test raw JSON caching with full playlist extraction."""
+        with patch.object(downloader, "extract_playlist_metadata") as mock_metadata:
+            with patch.object(downloader, "extract_playlist_videos") as mock_videos:
+                # Mock return values
+                mock_metadata.return_value = PlaylistMetadata(
+                    playlist_id="full_test",
+                    title="Full Test Playlist",
+                    description="Full test",
+                    video_count=2,
+                    total_size_estimate=None,
+                )
+                mock_videos.return_value = [
+                    VideoMetadata(
+                        video_id="full_video1",
+                        title="Full Video 1",
+                        duration=300,
+                        url="https://youtube.com/watch?v=full_video1",
+                    ),
+                    VideoMetadata(
+                        video_id="full_video2",
+                        title="Full Video 2",
+                        duration=200,
+                        url="https://youtube.com/watch?v=full_video2",
+                    ),
+                ]
+
+                url = "https://www.youtube.com/playlist?list=full_test"
+                result = downloader.extract_full_playlist(url)
+
+                assert result.metadata.playlist_id == "full_test"
+                assert len(result.videos) == 2
+
+                # Both methods should be called with the same URL and progress callback
+                # The callback is not None but a SilentProgressCallback
+                assert mock_metadata.call_count == 1
+                assert mock_videos.call_count == 1
+
+                # Verify the URL parameter
+                metadata_call_args = mock_metadata.call_args[0]
+                videos_call_args = mock_videos.call_args[0]
+                assert metadata_call_args[0] == url
+                assert videos_call_args[0] == url
 
 
 class TestYtDlpError:
