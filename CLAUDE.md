@@ -12,13 +12,11 @@ This is a Python command-line tool that converts YouTube playlists into physical
 - **Dependency Injection**: For testability and maintainability
 
 ## Development Environment
-- Use virtual environment (venv) for dependency isolation: `python -m venv venv && source venv/bin/activate`
 - Install dependencies: `pip install -r requirements.txt && pip install -r requirements-dev.txt`
 - Code quality tools: Black (formatting), isort (imports), flake8 (linting), mypy (typing)
 - Testing: pytest with >90% coverage requirement
 - Use Makefile for common tasks: `make help` for available commands
-- **Important Development Note**: Whenever running make, ensure you `source venv/bin/activate` first
-- You only need to activate before running python and make commands
+- **Important Development Note**: Whenever running make or python, ensure you `source venv/bin/activate` first
 
 ## File Organization
 ```

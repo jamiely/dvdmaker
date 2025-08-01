@@ -258,7 +258,13 @@ class VideoDownloader(BaseService):
                 playlist_id
             )
             if cached_raw_json:
-                self.logger.debug(f"Using cached raw JSON for playlist {playlist_id}")
+                cache_path = self.cache_manager.get_playlist_raw_json_cache_path(
+                    playlist_id
+                )
+                self.logger.debug(
+                    f"Using cached raw JSON for playlist {playlist_id} "
+                    f"from {cache_path}"
+                )
                 raw_json_output = cached_raw_json
             else:
                 # Build yt-dlp command for video extraction
