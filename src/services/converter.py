@@ -333,33 +333,58 @@ class VideoConverter(BaseService):
         """
         ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
 
+        # Determine interlaced settings based on format
+        is_ntsc = "480" in resolution
+        gop_size = "15" if is_ntsc else "12"  # GOP size for NTSC/PAL
+
         cmd = ffmpeg_cmd + [
             "-i",
             str(input_path),
             "-c:v",
             self.VIDEO_CODEC,
+            "-pix_fmt",
+            "yuv420p",  # Standard DVD pixel format
             "-b:v",
-            self.VIDEO_BITRATE,
+            "4000k" if self.settings.car_dvd_compatibility else self.VIDEO_BITRATE,
             "-s",
             resolution,
             "-r",
             framerate,
             "-aspect",
             self.settings.aspect_ratio,
+            # Video encoding settings for better car DVD player compatibility
+            "-flags",
+            "+ilme+ildct",  # Enable interlaced motion estimation and DCT
+            "-top",
+            "1",  # Top field first for interlaced content
+            "-g",
+            gop_size,  # GOP size (15 for NTSC, 12 for PAL)
+            "-bf",
+            "2",  # B-frames
+            "-sc_threshold",
+            "40",  # Scene change threshold
+            "-colorspace",
+            "bt470bg" if not is_ntsc else "smpte170m",  # Color space for PAL/NTSC
+            "-color_primaries",
+            "bt470bg" if not is_ntsc else "smpte170m",
+            "-color_trc",
+            "gamma28" if not is_ntsc else "smpte170m",
+            # Audio settings - use PCM for car DVD compatibility, AC-3 otherwise
             "-c:a",
-            self.AUDIO_CODEC,
+            "pcm_s16le" if self.settings.car_dvd_compatibility else self.AUDIO_CODEC,
             "-b:a",
-            self.AUDIO_BITRATE,
+            "1411k" if self.settings.car_dvd_compatibility else self.AUDIO_BITRATE,
             "-ac",
             "2",  # Stereo audio
             "-ar",
             "48000",  # 48kHz sample rate for DVD
+            # DVD multiplexing settings
             "-f",
             "dvd",  # DVD format for proper multiplexing
             "-muxrate",
             "10080000",  # DVD mux rate (10.08 Mbps)
             "-maxrate",
-            "9000000",  # Maximum video bitrate for DVD
+            "8000000",  # Lower max rate for better compatibility
             "-minrate",
             "0",  # Minimum video bitrate
             "-bufsize",

@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     generate_iso: bool = Field(default=True)
     video_format: str = Field(default="NTSC")
     aspect_ratio: str = Field(default="16:9")
+    car_dvd_compatibility: bool = Field(default=True)
 
     # Cache settings
     force_download: bool = Field(default=False)

@@ -412,9 +412,18 @@ class DVDAuthor(BaseService):
         menus = ET.SubElement(vmgm, "menus")
 
         # Add video format to menus (satisfies VMGM)
-        ET.SubElement(
-            menus, "video", format=video_format, aspect=self.settings.aspect_ratio
+        # Force 4:3 aspect ratio for VMGM to improve car DVD player compatibility
+        vmgm_aspect = (
+            "4:3" if self.settings.car_dvd_compatibility else self.settings.aspect_ratio
         )
+
+        if self.settings.car_dvd_compatibility and self.settings.aspect_ratio != "4:3":
+            self.logger.debug(
+                f"Car DVD compatibility mode: overriding VMGM aspect ratio from "
+                f"{self.settings.aspect_ratio} to 4:3 for better compatibility"
+            )
+
+        ET.SubElement(menus, "video", format=video_format, aspect=vmgm_aspect)
 
         pgc = ET.SubElement(menus, "pgc")
 

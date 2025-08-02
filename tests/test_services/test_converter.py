@@ -1,6 +1,7 @@
 """Tests for the video converter service."""
 
 import json
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -27,6 +28,7 @@ def mock_settings():
     settings.download_tools = True
     settings.video_format = "NTSC"  # Default video format
     settings.aspect_ratio = "16:9"  # Default aspect ratio
+    settings.car_dvd_compatibility = False  # Default car DVD compatibility
     return settings
 
 
@@ -650,3 +652,449 @@ class TestVideoConverterIntegration:
         loaded_metadata = converter2._load_converted_metadata()
 
         assert loaded_metadata == test_metadata
+
+
+class TestVideoConverterErrorHandling:
+    """Test error handling in VideoConverter."""
+
+    def test_load_converted_metadata_json_decode_error(self, video_converter):
+        """Test handling of corrupted metadata file."""
+        # Create invalid JSON file
+        with open(video_converter.metadata_file, "w") as f:
+            f.write("invalid json content")
+
+        metadata = video_converter._load_converted_metadata()
+        assert metadata == {}
+
+    def test_load_converted_metadata_io_error(self, video_converter):
+        """Test handling of IO error when loading metadata."""
+        # Create a file first, then make it unreadable
+        video_converter.metadata_file.parent.mkdir(parents=True, exist_ok=True)
+        video_converter.metadata_file.write_text('{"test": "data"}')
+        video_converter.metadata_file.chmod(0o000)
+
+        try:
+            metadata = video_converter._load_converted_metadata()
+            assert metadata == {}
+        finally:
+            # Restore permissions for cleanup
+            video_converter.metadata_file.chmod(0o644)
+
+    def test_save_converted_metadata_io_error(self, video_converter):
+        """Test handling of IO error when saving metadata."""
+        # Mock open to raise IOError
+        with patch("builtins.open", side_effect=IOError("Mocked IO error")):
+            # Should not raise exception, just log error
+            video_converter._save_converted_metadata({"test": {"data": "value"}})
+
+    def test_calculate_file_checksum_io_error(self, video_converter, tmp_path):
+        """Test checksum calculation with IO error."""
+        nonexistent_file = tmp_path / "nonexistent.txt"
+
+        checksum = video_converter._calculate_file_checksum(nonexistent_file)
+        assert checksum == ""
+
+    def test_get_video_info_file_not_found(self, video_converter, tmp_path):
+        """Test video info extraction with missing ffprobe."""
+        nonexistent_file = tmp_path / "test.mp4"
+        nonexistent_file.write_bytes(b"fake content")
+
+        # Mock tool manager to return non-existent command
+        video_converter.tool_manager.get_tool_command.return_value = [
+            "/nonexistent/ffprobe"
+        ]
+
+        with pytest.raises(ConversionError, match="Failed to analyze video"):
+            video_converter._get_video_info(nonexistent_file)
+
+    @patch("subprocess.run")
+    def test_get_video_info_timeout(self, mock_run, video_converter, tmp_path):
+        """Test video info extraction with timeout."""
+        mock_run.side_effect = subprocess.TimeoutExpired("ffprobe", 30)
+
+        test_file = tmp_path / "test.mp4"
+        test_file.write_bytes(b"fake content")
+
+        with pytest.raises(ConversionError, match="Failed to analyze video"):
+            video_converter._get_video_info(test_file)
+
+    @patch("subprocess.run")
+    def test_get_video_info_invalid_json(self, mock_run, video_converter, tmp_path):
+        """Test video info extraction with invalid JSON response."""
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "invalid json"
+        mock_run.return_value = mock_result
+
+        test_file = tmp_path / "test.mp4"
+        test_file.write_bytes(b"fake content")
+
+        with pytest.raises(ConversionError, match="Failed to analyze video"):
+            video_converter._get_video_info(test_file)
+
+
+class TestVideoConverterProgressReporting:
+    """Test progress reporting functionality."""
+
+    def test_progress_callback_during_conversion(self, video_converter):
+        """Test that progress callback is called during conversion."""
+        progress_calls = []
+
+        def mock_callback(message, progress):
+            progress_calls.append((message, progress))
+
+        video_converter.progress_callback = mock_callback
+
+        # Mock subprocess with progress output
+        mock_process = Mock()
+        mock_process.poll.side_effect = [None, None, 0]
+        mock_process.returncode = 0
+        mock_process.stderr.readline.side_effect = [
+            "frame=  100 time=00:01:30.45 bitrate=1000.0kbits/s speed=1.5x\n",
+            "frame=  200 time=00:03:00.90 bitrate=1000.0kbits/s speed=1.5x\n",
+            "",
+        ]
+        mock_process.communicate.return_value = ("", "")
+
+        with patch("subprocess.Popen", return_value=mock_process):
+            video_converter._run_conversion_command(
+                ["ffmpeg", "-i", "input.mp4", "output.mpv"],
+                "test conversion",
+                estimated_duration=300,  # 5 minutes
+            )
+
+        # Should have called progress callback
+        assert len(progress_calls) >= 1
+
+    def test_progress_callback_with_invalid_time_format(self, video_converter):
+        """Test progress parsing with invalid time format."""
+        progress_calls = []
+
+        def mock_callback(message, progress):
+            progress_calls.append((message, progress))
+
+        video_converter.progress_callback = mock_callback
+
+        # Mock subprocess with invalid time format
+        mock_process = Mock()
+        mock_process.poll.side_effect = [None, 0]
+        mock_process.returncode = 0
+        mock_process.stderr.readline.side_effect = [
+            "frame=  100 time=invalid_time bitrate=1000.0kbits/s\n",
+            "",
+        ]
+        mock_process.communicate.return_value = ("", "")
+
+        with patch("subprocess.Popen", return_value=mock_process):
+            video_converter._run_conversion_command(
+                ["ffmpeg", "-i", "input.mp4", "output.mpv"],
+                "test conversion",
+                estimated_duration=300,
+            )
+
+        # Should complete without error, just skip invalid progress
+        assert mock_process.communicate.called
+
+    @patch("subprocess.Popen")
+    def test_run_conversion_command_subprocess_error(self, mock_popen, video_converter):
+        """Test handling of subprocess errors."""
+        mock_popen.side_effect = subprocess.SubprocessError("Process failed")
+
+        with pytest.raises(ConversionError, match="test operation failed"):
+            video_converter._run_conversion_command(
+                ["ffmpeg", "-version"], "test operation"
+            )
+
+
+class TestVideoConverterCacheHandling:
+    """Test cache-related functionality."""
+
+    def test_is_video_converted_size_mismatch(
+        self, video_converter, sample_video_metadata, tmp_path
+    ):
+        """Test is_video_converted with file size mismatch."""
+        # Create file with different size
+        video_file = tmp_path / "converted.mpg"
+        video_file.write_bytes(b"different content")
+
+        # Add to metadata with wrong size
+        metadata = {
+            sample_video_metadata.video_id: {
+                "video_id": sample_video_metadata.video_id,
+                "video_file": str(video_file),
+                "file_size": 999999,  # Wrong size
+                "checksum": "abc123",
+            }
+        }
+        video_converter._save_converted_metadata(metadata)
+
+        assert not video_converter.is_video_converted(sample_video_metadata)
+
+    def test_convert_video_uses_cache_when_available(
+        self, video_converter, sample_video_file, tmp_path
+    ):
+        """Test that convert_video uses cached version when available."""
+        # Create cached file
+        video_file = tmp_path / "converted.mpg"
+        content = b"cached content"
+        video_file.write_bytes(content)
+
+        metadata = {
+            sample_video_file.metadata.video_id: {
+                "video_id": sample_video_file.metadata.video_id,
+                "video_file": str(video_file),
+                "file_size": len(content),
+                "checksum": "abc123",
+                "duration": 120,
+                "resolution": "720x480",
+                "video_codec": "mpeg2video",
+                "audio_codec": "ac3",
+                "thumbnail_file": None,
+            }
+        }
+        video_converter._save_converted_metadata(metadata)
+
+        # Should return cached version without conversion
+        result = video_converter.convert_video(sample_video_file)
+        assert isinstance(result, ConvertedVideoFile)
+        assert result.video_file == video_file
+
+    def test_convert_video_force_convert_bypasses_cache(
+        self, video_converter, sample_video_file, tmp_path
+    ):
+        """Test that force_convert bypasses cache."""
+        # Create cached file
+        video_file = tmp_path / "converted.mpg"
+        content = b"cached content"
+        video_file.write_bytes(content)
+
+        metadata = {
+            sample_video_file.metadata.video_id: {
+                "video_id": sample_video_file.metadata.video_id,
+                "video_file": str(video_file),
+                "file_size": len(content),
+                "checksum": "abc123",
+                "duration": 120,
+                "resolution": "720x480",
+                "video_codec": "mpeg2video",
+                "audio_codec": "ac3",
+                "thumbnail_file": None,
+            }
+        }
+        video_converter._save_converted_metadata(metadata)
+
+        # Mock conversion process
+        with (
+            patch.object(video_converter, "_get_video_info") as mock_info,
+            patch.object(video_converter, "_run_conversion_command") as mock_run,
+            patch.object(video_converter, "_calculate_file_checksum") as mock_checksum,
+            patch("tempfile.NamedTemporaryFile") as mock_temp,
+        ):
+
+            mock_info.side_effect = [
+                {"streams": [], "format": {"duration": "120.0"}},  # Input analysis
+                {
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "codec_name": "mpeg2video",
+                            "width": 720,
+                            "height": 480,
+                        },
+                        {"codec_type": "audio", "codec_name": "ac3"},
+                    ],
+                    "format": {"duration": "120.0"},
+                },  # Output analysis
+            ]
+            mock_checksum.return_value = "new_checksum"
+
+            # Mock temp files
+            temp_video = tmp_path / "temp_video.mpg"
+            temp_thumb = tmp_path / "temp_thumb.jpg"
+            temp_video.write_bytes(b"new content")
+            temp_thumb.write_bytes(b"thumb content")
+
+            def mock_temp_factory(suffix=None, delete=None):
+                mock_file = Mock()
+                if suffix == ".mpg":
+                    mock_file.name = str(temp_video)
+                else:
+                    mock_file.name = str(temp_thumb)
+                mock_file.__enter__ = Mock(return_value=mock_file)
+                mock_file.__exit__ = Mock(return_value=None)
+                return mock_file
+
+            mock_temp.side_effect = mock_temp_factory
+
+            with patch.object(Path, "rename") as mock_rename:
+
+                def side_effect(dest):
+                    dest.write_bytes(b"new content")
+
+                mock_rename.side_effect = side_effect
+
+                # Should perform conversion despite cached version
+                result = video_converter.convert_video(
+                    sample_video_file, force_convert=True
+                )
+                assert mock_run.called
+                assert isinstance(result, ConvertedVideoFile)
+
+
+class TestVideoConverterCarDVDCompatibility:
+    """Test car DVD compatibility features."""
+
+    def test_build_conversion_command_car_dvd_compatibility(
+        self, video_converter, tmp_path
+    ):
+        """Test conversion command with car DVD compatibility enabled."""
+        video_converter.settings.car_dvd_compatibility = True
+
+        input_path = tmp_path / "input.mp4"
+        output_path = tmp_path / "output.mpg"
+
+        cmd = video_converter._build_conversion_command(
+            input_path, output_path, "720x480", "29.97"
+        )
+
+        # Should use lower bitrate and PCM audio for compatibility
+        assert "4000k" in cmd  # Lower video bitrate
+        assert "pcm_s16le" in cmd  # PCM audio instead of AC-3
+        assert "1411k" in cmd  # PCM audio bitrate
+
+        # Should include interlacing flags
+        assert "+ilme+ildct" in cmd
+        assert "bt470bg" in cmd or "smpte170m" in cmd  # Color space
+
+    def test_build_conversion_command_standard_mode(self, video_converter, tmp_path):
+        """Test conversion command with standard DVD settings."""
+        video_converter.settings.car_dvd_compatibility = False
+
+        input_path = tmp_path / "input.mp4"
+        output_path = tmp_path / "output.mpg"
+
+        cmd = video_converter._build_conversion_command(
+            input_path, output_path, "720x480", "29.97"
+        )
+
+        # Should use standard bitrate and AC-3 audio
+        assert "6000k" in cmd  # Standard video bitrate
+        assert "ac3" in cmd  # AC-3 audio
+        assert "448k" in cmd  # AC-3 audio bitrate
+
+
+class TestVideoConverterCleanup:
+    """Test cleanup and maintenance functionality."""
+
+    def test_cleanup_cache_removes_old_files(self, video_converter, tmp_path):
+        """Test that cleanup removes old converted files."""
+        # Create test files and metadata
+        metadata = {}
+        created_files = []
+
+        for i in range(5):
+            video_id = f"video_{i}"
+            video_dir = video_converter.converted_cache_dir / video_id
+            video_dir.mkdir(parents=True, exist_ok=True)
+
+            video_file = video_dir / f"{video_id}_dvd.mpv"
+            thumb_file = video_dir / f"{video_id}_thumb.jpg"
+
+            video_file.write_bytes(b"content")
+            thumb_file.write_bytes(b"thumb")
+            created_files.extend([video_file, thumb_file])
+
+            metadata[video_id] = {
+                "video_id": video_id,
+                "video_file": str(video_file),
+                "thumbnail_file": str(thumb_file),
+                "file_size": 1000,
+                "checksum": "abc123",
+            }
+
+        video_converter._save_converted_metadata(metadata)
+
+        # All files should exist
+        for file_path in created_files:
+            assert file_path.exists()
+
+        # Cleanup keeping only 2 recent files
+        video_converter.cleanup_cache(keep_recent=2)
+
+        # Check metadata was updated
+        remaining_metadata = video_converter._load_converted_metadata()
+        assert len(remaining_metadata) == 2
+
+        # Check files were removed (3 oldest should be gone)
+        removed_files = created_files[:6]  # First 3 videos * 2 files each
+        for file_path in removed_files:
+            assert not file_path.exists()
+
+    def test_cleanup_cache_handles_missing_files(self, video_converter):
+        """Test cleanup handles missing files gracefully."""
+        # Create metadata for non-existent files
+        metadata = {
+            "video1": {
+                "video_id": "video1",
+                "video_file": "/nonexistent/file.mpv",
+                "thumbnail_file": "/nonexistent/thumb.jpg",
+                "file_size": 1000,
+                "checksum": "abc123",
+            }
+        }
+        video_converter._save_converted_metadata(metadata)
+
+        # Should not raise exception
+        video_converter.cleanup_cache(keep_recent=0)
+
+        # Metadata should be cleaned up
+        remaining_metadata = video_converter._load_converted_metadata()
+        assert len(remaining_metadata) == 0
+
+    def test_cleanup_cache_keep_recent_zero(self, video_converter, tmp_path):
+        """Test cleanup with keep_recent=0 removes all files."""
+        # Create one test file
+        video_id = "test_video"
+        video_dir = video_converter.converted_cache_dir / video_id
+        video_dir.mkdir(parents=True, exist_ok=True)
+
+        video_file = video_dir / f"{video_id}_dvd.mpv"
+        video_file.write_bytes(b"content")
+
+        metadata = {
+            video_id: {
+                "video_id": video_id,
+                "video_file": str(video_file),
+                "thumbnail_file": None,
+                "file_size": 1000,
+                "checksum": "abc123",
+            }
+        }
+        video_converter._save_converted_metadata(metadata)
+
+        # Cleanup with keep_recent=0
+        video_converter.cleanup_cache(keep_recent=0)
+
+        # All should be removed
+        remaining_metadata = video_converter._load_converted_metadata()
+        assert len(remaining_metadata) == 0
+        assert not video_file.exists()
+
+    def test_cleanup_cache_no_cleanup_needed(self, video_converter):
+        """Test cleanup when no cleanup is needed."""
+        # Create metadata with fewer items than keep_recent
+        metadata = {
+            "video1": {
+                "video_id": "video1",
+                "video_file": "/path/file.mpv",
+                "file_size": 1000,
+                "checksum": "abc123",
+            }
+        }
+        video_converter._save_converted_metadata(metadata)
+
+        # Should not remove anything
+        video_converter.cleanup_cache(keep_recent=5)
+
+        remaining_metadata = video_converter._load_converted_metadata()
+        assert len(remaining_metadata) == 1

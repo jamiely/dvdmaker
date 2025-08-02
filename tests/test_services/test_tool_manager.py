@@ -742,6 +742,159 @@ class TestToolManagerSettings:
             assert "auto-download disabled" in missing[0]
 
 
+class TestToolManagerErrorHandling:
+    """Test ToolManager error handling and edge cases."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.settings = Settings(
+            bin_dir=Path("/tmp/test_bin"),
+            download_tools=True,
+            use_system_tools=False,
+        )
+        self.tool_manager = ToolManager(self.settings)
+
+    @patch("src.services.tool_manager.ToolManager._run_logged_subprocess")
+    def test_validate_and_get_version_subprocess_error_with_output(self, mock_run):
+        """Test _validate_and_get_version with subprocess error with stdout/stderr."""
+        # Mock subprocess.CalledProcessError with stdout and stderr
+        error = subprocess.CalledProcessError(1, ["ffmpeg", "--version"])
+        error.stdout = "Some stdout output"
+        error.stderr = "Some stderr output"
+        mock_run.side_effect = error
+
+        is_functional, version = self.tool_manager._validate_and_get_version("ffmpeg")
+
+        assert is_functional is False
+        assert version is None
+
+    @patch("src.services.tool_manager.ToolManager._run_logged_subprocess")
+    def test_validate_and_get_version_mkisofs_fallback_success(self, mock_run):
+        """Test mkisofs fallback to genisoimage when mkisofs fails."""
+        # First call (mkisofs) fails, second call (genisoimage) succeeds
+        mock_run.side_effect = [
+            Mock(returncode=1),  # mkisofs fails
+            Mock(returncode=0, stdout="genisoimage 1.1.11"),  # genisoimage succeeds
+        ]
+
+        is_functional, version = self.tool_manager._validate_and_get_version("mkisofs")
+
+        assert is_functional is True
+        assert version == "1.1.11"  # Version number is extracted, not the full string
+        assert mock_run.call_count == 2
+
+    @patch("src.services.tool_manager.ToolManager._run_logged_subprocess")
+    def test_validate_and_get_version_mkisofs_both_fail(self, mock_run):
+        """Test mkisofs when both mkisofs and genisoimage fail."""
+        # Both calls fail
+        mock_run.side_effect = [
+            Mock(returncode=1),  # mkisofs fails
+            Mock(returncode=1),  # genisoimage also fails
+        ]
+
+        is_functional, version = self.tool_manager._validate_and_get_version("mkisofs")
+
+        assert is_functional is False
+        assert version is None
+        assert mock_run.call_count == 2
+
+    @patch("src.services.tool_manager.ToolManager._run_logged_subprocess")
+    def test_validate_and_get_version_mkisofs_fallback_exception(self, mock_run):
+        """Test mkisofs when fallback to genisoimage raises exception."""
+        # First call fails, second call raises exception
+        mock_run.side_effect = [
+            Mock(returncode=1),  # mkisofs fails
+            Exception("Network error"),  # genisoimage raises exception
+        ]
+
+        is_functional, version = self.tool_manager._validate_and_get_version("mkisofs")
+
+        assert is_functional is False
+        assert version is None
+        assert mock_run.call_count == 2
+
+    def test_save_tool_versions_io_error(self):
+        """Test save_tool_versions handles IO errors by raising ToolManagerError."""
+        versions = {"ffmpeg": "4.4.0", "yt-dlp": "2023.01.06"}
+
+        # Mock open to raise IOError
+        with patch("builtins.open", side_effect=IOError("Permission denied")):
+            # Should raise ToolManagerError and log the error
+            with pytest.raises(ToolManagerError, match="Failed to save tool versions"):
+                self.tool_manager.save_tool_versions(versions)
+
+    def test_get_tool_versions_io_error(self):
+        """Test get_tool_versions handles IO errors gracefully."""
+        # Mock pathlib.Path.exists to return True, but open fails
+        with (
+            patch("pathlib.Path.exists", return_value=True),
+            patch("builtins.open", side_effect=IOError("Permission denied")),
+        ):
+
+            versions = self.tool_manager.get_tool_versions()
+            assert versions == {}
+
+    def test_get_tool_versions_json_decode_error(self):
+        """Test get_tool_versions handles JSON decode errors gracefully."""
+        # Mock file existence and invalid JSON content
+        with (
+            patch("pathlib.Path.exists", return_value=True),
+            patch("builtins.open", mock_open(read_data="invalid json content")),
+        ):
+
+            versions = self.tool_manager.get_tool_versions()
+            assert versions == {}
+
+    def test_unknown_tool_validation(self):
+        """Test _validate_and_get_version with unknown tool name."""
+        is_functional, version = self.tool_manager._validate_and_get_version(
+            "unknown_tool"
+        )
+
+        assert is_functional is False
+        assert version is None
+
+    @patch("src.services.tool_manager.ToolManager._run_logged_subprocess")
+    def test_dvdauthor_version_extraction_system_fallback(self, mock_run):
+        """Test dvdauthor version extraction when standard parsing fails."""
+        # Mock successful run but with non-standard version output
+        mock_run.return_value = Mock(
+            returncode=0,
+            stdout="dvdauthor (other info)\nSome other line",
+            stderr="",  # Ensure stderr is a string, not a mock
+        )
+
+        is_functional, version = self.tool_manager._validate_and_get_version(
+            "dvdauthor"
+        )
+
+        assert is_functional is True
+        assert version is None  # Returns None when can't parse version
+
+    def test_run_logged_subprocess_calledprocesserror_with_output(self):
+        """Test _run_logged_subprocess handling CalledProcessError with output."""
+        error = subprocess.CalledProcessError(1, ["test", "command"])
+        error.stdout = "stdout content"
+        error.stderr = "stderr content"
+
+        # Patch the actual subprocess.run call
+        with patch("subprocess.run", side_effect=error):
+            try:
+                self.tool_manager._run_logged_subprocess(["test", "command"])
+                assert False, "Should have raised CalledProcessError"
+            except subprocess.CalledProcessError:
+                pass  # Expected
+
+    def test_get_tool_versions_nonexistent_file(self):
+        """Test get_tool_versions when file doesn't exist."""
+        # Ensure file doesn't exist
+        if self.tool_manager.tool_versions_file.exists():
+            self.tool_manager.tool_versions_file.unlink()
+
+        versions = self.tool_manager.get_tool_versions()
+        assert versions == {}
+
+
 class TestToolManagerExceptions:
     """Test ToolManager exception handling."""
 

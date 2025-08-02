@@ -81,6 +81,15 @@ class TestCacheManagerInitialization:
             assert directory.exists(), f"Directory {directory} was not created"
             assert directory.is_dir(), f"{directory} is not a directory"
 
+    def test_init_without_settings(self, temp_cache_dir):
+        """Test initialization without settings parameter."""
+        # This tests the else branch in __init__ (line 41)
+        cache_manager = CacheManager(cache_dir=temp_cache_dir, settings=None)
+
+        # Should still have a logger
+        assert hasattr(cache_manager, "logger")
+        assert cache_manager.logger is not None
+
     def test_init_with_force_flags(self, temp_cache_dir):
         """Test initialization with force flags set."""
         cache_manager = CacheManager(
@@ -332,6 +341,77 @@ class TestDownloadCaching:
 
         assert result is None
 
+    def test_is_download_cached_metadata_error_handling(
+        self, cache_manager, sample_video_file
+    ):
+        """Test cache check with metadata error handling (lines 286-287)."""
+        video_id = "test_video"
+
+        # Create cached file
+        cache_path = cache_manager.get_download_cache_path(video_id)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        sample_video_file.rename(cache_path)
+
+        # Create metadata file that will cause JSON decode error
+        metadata_path = cache_manager.get_metadata_cache_path(video_id)
+        metadata_path.write_text("invalid json content")
+
+        # Should continue and return True despite metadata error
+        result = cache_manager.is_download_cached(video_id)
+        assert result is True
+
+    def test_store_download_copy_verification_failure(
+        self, cache_manager, sample_video_file, sample_video_metadata
+    ):
+        """Test download storage with copy size verification failure (lines 377-381)."""
+        video_id = sample_video_metadata.video_id
+
+        # Mock shutil.copy2 to create file with wrong size
+        with patch("src.services.cache_manager.shutil.copy2") as mock_copy:
+
+            def mock_copy_wrong_size(src, dst):
+                # Create destination file with wrong size
+                Path(dst).write_bytes(b"wrong size content")
+
+            mock_copy.side_effect = mock_copy_wrong_size
+
+            with pytest.raises(RuntimeError, match="Failed to store download cache"):
+                cache_manager.store_download(
+                    video_id, sample_video_file, sample_video_metadata
+                )
+
+    def test_store_download_cleanup_on_error(
+        self, cache_manager, sample_video_file, sample_video_metadata
+    ):
+        """Test download storage cleanup on error (lines 426-432)."""
+        video_id = sample_video_metadata.video_id
+
+        # Mock file checksum calculation to raise an error
+        with patch.object(cache_manager, "_calculate_file_checksum") as mock_checksum:
+            mock_checksum.side_effect = RuntimeError("Checksum calculation failed")
+
+            with pytest.raises(RuntimeError, match="Failed to store download cache"):
+                cache_manager.store_download(
+                    video_id, sample_video_file, sample_video_metadata
+                )
+
+    def test_store_download_lock_acquisition_error(
+        self, cache_manager, sample_video_file, sample_video_metadata
+    ):
+        """Test download storage with lock acquisition error (lines 440-444)."""
+        video_id = sample_video_metadata.video_id
+
+        # Mock RetryableLock to raise OSError
+        with patch("src.services.cache_manager.RetryableLock") as mock_lock:
+            mock_lock.side_effect = OSError("Failed to acquire lock")
+
+            with pytest.raises(
+                RuntimeError, match="Failed to acquire download cache lock"
+            ):
+                cache_manager.store_download(
+                    video_id, sample_video_file, sample_video_metadata
+                )
+
 
 class TestConvertedCaching:
     """Tests for converted file caching functionality."""
@@ -465,6 +545,52 @@ class TestConvertedCaching:
 
         assert result is None
 
+    def test_store_converted_nonexistent_source(
+        self, cache_manager, sample_video_metadata
+    ):
+        """Test converted storage with nonexistent source file (lines 465-466)."""
+        nonexistent_file = Path("/nonexistent/converted_file.mpg")
+
+        with pytest.raises(RuntimeError, match="Source file does not exist"):
+            cache_manager.store_converted(
+                sample_video_metadata.video_id, nonexistent_file, sample_video_metadata
+            )
+
+    def test_store_converted_copy_verification_failure(
+        self, cache_manager, sample_video_file, sample_video_metadata
+    ):
+        """Test converted storage with copy size verification failure (492-496)."""
+        video_id = sample_video_metadata.video_id
+
+        # Mock shutil.copy2 to create file with wrong size
+        with patch("src.services.cache_manager.shutil.copy2") as mock_copy:
+
+            def mock_copy_wrong_size(src, dst):
+                # Create destination file with wrong size
+                Path(dst).write_bytes(b"wrong size content")
+
+            mock_copy.side_effect = mock_copy_wrong_size
+
+            with pytest.raises(RuntimeError, match="Failed to store converted cache"):
+                cache_manager.store_converted(
+                    video_id, sample_video_file, sample_video_metadata
+                )
+
+    def test_store_converted_cleanup_on_error(
+        self, cache_manager, sample_video_file, sample_video_metadata
+    ):
+        """Test converted storage cleanup on error (lines 521-542)."""
+        video_id = sample_video_metadata.video_id
+
+        # Mock file checksum calculation to raise an error
+        with patch.object(cache_manager, "_calculate_file_checksum") as mock_checksum:
+            mock_checksum.side_effect = RuntimeError("Checksum calculation failed")
+
+            with pytest.raises(RuntimeError, match="Failed to store converted cache"):
+                cache_manager.store_converted(
+                    video_id, sample_video_file, sample_video_metadata
+                )
+
 
 class TestPlaylistMetadataCaching:
     """Tests for playlist metadata caching."""
@@ -515,6 +641,81 @@ class TestPlaylistMetadataCaching:
 
         result = cache_manager.get_cached_playlist_metadata(playlist_id)
         assert result is None
+
+    def test_store_playlist_metadata_error_handling(
+        self, cache_manager, sample_playlist_metadata
+    ):
+        """Test playlist metadata storage error handling (lines 694-703)."""
+        # Mock _write_json_atomically to raise an error
+        with patch.object(cache_manager, "_write_json_atomically") as mock_write:
+            mock_write.side_effect = RuntimeError("Write failed")
+
+            with pytest.raises(RuntimeError, match="Failed to store playlist metadata"):
+                cache_manager.store_playlist_metadata(sample_playlist_metadata)
+
+    def test_store_playlist_metadata_lock_error(
+        self, cache_manager, sample_playlist_metadata
+    ):
+        """Test playlist metadata storage lock error (lines 698-703)."""
+        # Mock RetryableLock to raise TimeoutError
+        with patch("src.services.cache_manager.RetryableLock") as mock_lock:
+            mock_lock.side_effect = TimeoutError("Lock timeout")
+
+            with pytest.raises(
+                RuntimeError, match="Failed to acquire playlist metadata lock"
+            ):
+                cache_manager.store_playlist_metadata(sample_playlist_metadata)
+
+
+class TestAtomicJsonWriting:
+    """Tests for atomic JSON writing functionality."""
+
+    @patch("src.services.cache_manager.json.dump")
+    def test_write_json_atomically_json_error(
+        self, mock_dump, cache_manager, temp_cache_dir
+    ):
+        """Test atomic JSON writing with JSON dump error."""
+        mock_dump.side_effect = ValueError("JSON encoding error")
+
+        test_file = temp_cache_dir / "test.json"
+        test_data = {"key": "value"}
+
+        with pytest.raises(RuntimeError, match="Failed to write JSON atomically"):
+            cache_manager._write_json_atomically(test_file, test_data)
+
+        # Verify temp file was cleaned up
+        temp_files = list(temp_cache_dir.glob("*.tmp"))
+        assert len(temp_files) == 0
+
+    @patch("src.services.cache_manager.shutil.move")
+    @patch("builtins.open")
+    def test_write_json_atomically_move_error(
+        self, mock_open, mock_move, cache_manager, temp_cache_dir
+    ):
+        """Test atomic JSON writing with move error."""
+        mock_move.side_effect = OSError("Move failed")
+
+        test_file = temp_cache_dir / "test.json"
+        test_data = {"key": "value"}
+
+        with pytest.raises(RuntimeError, match="Failed to write JSON atomically"):
+            cache_manager._write_json_atomically(test_file, test_data)
+
+    @patch("src.services.cache_manager.shutil.move")
+    @patch("builtins.open")
+    @patch.object(Path, "unlink")
+    def test_write_json_atomically_cleanup_error(
+        self, mock_unlink, mock_open, mock_move, cache_manager, temp_cache_dir
+    ):
+        """Test atomic JSON writing with cleanup error (line 128)."""
+        mock_move.side_effect = OSError("Move failed")
+        mock_unlink.side_effect = OSError("Unlink failed")
+
+        test_file = temp_cache_dir / "test.json"
+        test_data = {"key": "value"}
+
+        with pytest.raises(RuntimeError, match="Failed to write JSON atomically"):
+            cache_manager._write_json_atomically(test_file, test_data)
 
 
 class TestPlaylistRawJsonCaching:
@@ -587,6 +788,28 @@ class TestPlaylistRawJsonCaching:
             # Restore permissions for cleanup
             cache_path.chmod(0o644)
 
+    def test_store_playlist_raw_json_error_handling(self, cache_manager):
+        """Test raw JSON storage error handling (lines 770-779)."""
+        playlist_id = "test_playlist"
+        raw_json = '{"test": "data"}'
+
+        # Mock open to raise an error
+        with patch("builtins.open", side_effect=OSError("Write failed")):
+            with pytest.raises(RuntimeError, match="Failed to store raw JSON"):
+                cache_manager.store_playlist_raw_json(playlist_id, raw_json)
+
+    def test_store_playlist_raw_json_lock_error(self, cache_manager):
+        """Test raw JSON storage lock error (lines 774-779)."""
+        playlist_id = "test_playlist"
+        raw_json = '{"test": "data"}'
+
+        # Mock RetryableLock to raise OSError
+        with patch("src.services.cache_manager.RetryableLock") as mock_lock:
+            mock_lock.side_effect = OSError("Lock failed")
+
+            with pytest.raises(RuntimeError, match="Failed to acquire raw JSON lock"):
+                cache_manager.store_playlist_raw_json(playlist_id, raw_json)
+
 
 class TestFilenameMapping:
     """Tests for filename mapping functionality."""
@@ -611,6 +834,17 @@ class TestFilenameMapping:
         with patch.object(cache_manager.filename_mapper, "save_mapping") as mock_save:
             cache_manager.save_filename_mapping()
             mock_save.assert_called_once()
+
+    def test_save_filename_mapping_lock_error(self, cache_manager):
+        """Test filename mapping save with lock error (lines 839-843)."""
+        # Mock RetryableLock to raise OSError
+        with patch("src.services.cache_manager.RetryableLock") as mock_lock:
+            mock_lock.side_effect = OSError("Lock failed")
+
+            with pytest.raises(
+                RuntimeError, match="Failed to acquire filename mapping lock"
+            ):
+                cache_manager.save_filename_mapping()
 
 
 class TestCacheCleanup:
@@ -719,6 +953,55 @@ class TestCacheStats:
         stats = cache_manager.get_cache_stats()
 
         assert stats["downloads_count"] == 1
+        assert stats["downloads_size"] == len(b"normal content")
+
+    def test_get_cache_stats_handles_stat_errors(self, cache_manager):
+        """Test that statistics handle file stat errors gracefully (lines 910-911)."""
+        # Create a file
+        test_file = cache_manager.downloads_dir / "test.mp4"
+        test_file.write_bytes(b"test content")
+
+        # Create another normal file
+        normal_file = cache_manager.downloads_dir / "normal.mp4"
+        normal_file.write_bytes(b"normal content")
+
+        # Use a more targeted mock approach - mock Path.rglob to return our test files,
+        # then mock stat only for the first file during size calculation
+        original_rglob = Path.rglob
+
+        def mock_rglob(self, pattern):
+            if self == cache_manager.downloads_dir:
+                # Return our test files
+                test_file_obj = cache_manager.downloads_dir / "test.mp4"
+                normal_file_obj = cache_manager.downloads_dir / "normal.mp4"
+
+                # Mock the stat method for test_file to raise OSError
+                def failing_stat():
+                    raise OSError("Stat failed")
+
+                # Create a mock object for test_file that will fail on stat
+                class MockPath:
+                    def __init__(self, path):
+                        self._path = path
+                        self.name = path.name
+
+                    def is_file(self):
+                        return True
+
+                    def stat(self):
+                        if self.name == "test.mp4":
+                            raise OSError("Stat failed for test.mp4")
+                        return self._path.stat()
+
+                return [MockPath(test_file_obj), normal_file_obj]
+            return original_rglob(self, pattern)
+
+        with patch.object(Path, "rglob", mock_rglob):
+            stats = cache_manager.get_cache_stats()
+
+        # Should not crash and should continue despite stat error
+        # Normal file should be counted, test file should be skipped due to error
+        assert stats["downloads_count"] == 1  # Only normal file counted
         assert stats["downloads_size"] == len(b"normal content")
 
 
