@@ -121,17 +121,43 @@ class CleanupManager:
             logger.info("Conversions directory does not exist, nothing to clean")
             return stats
 
-        # Clean converted files but preserve .in-progress directory
+        # Clean converted files and subdirectories, but preserve .in-progress items
         for item in converted_dir.iterdir():
             if item.name.startswith("."):
                 logger.debug(f"Skipping hidden item: {item}")
                 continue
 
             if item.is_file():
+                # Direct files in converted directory (legacy structure)
                 self._remove_item(item, stats, dry_run, "converted file")
+            elif item.is_dir():
+                # Video-specific subdirectories containing converted files
+                # Each subdirectory contains {video_id}_dvd.mpg and {video_id}_thumb.jpg
+                logger.debug(f"Cleaning converted subdirectory: {item}")
+                for sub_item in item.iterdir():
+                    if sub_item.is_file():
+                        self._remove_item(sub_item, stats, dry_run, "converted file")
+
+                # Remove empty subdirectory after cleaning files
+                if not dry_run and item.exists():
+                    try:
+                        if not any(item.iterdir()):  # Directory is empty
+                            item.rmdir()
+                            stats.directories_removed += 1
+                            logger.debug(
+                                f"Removed empty converted subdirectory: {item}"
+                            )
+                    except OSError as e:
+                        logger.warning(f"Failed to remove empty directory {item}: {e}")
+
+        # Also clean metadata file if it exists
+        metadata_file = converted_dir / "converted_metadata.json"
+        if metadata_file.exists():
+            self._remove_item(metadata_file, stats, dry_run, "converted metadata")
 
         logger.info(
             f"Conversions cleanup complete: {stats.files_removed} files, "
+            f"{stats.directories_removed} directories, "
             f"{stats.size_freed_mb:.1f}MB freed"
         )
         return stats

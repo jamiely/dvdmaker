@@ -156,27 +156,70 @@ class TestCleanupManager:
         assert hidden_file.exists()
 
     def test_clean_conversions_with_files(self, cleanup_manager, temp_directories):
-        """Test cleaning conversions with files present."""
+        """Test cleaning conversions with files present (legacy + subdirectories)."""
         converted_dir = temp_directories["cache"] / "converted"
 
-        # Create test files
-        test_files = [
+        # Create test files in direct structure (legacy)
+        legacy_files = [
             converted_dir / "video1.mpg",
             converted_dir / "video2.mpg",
         ]
 
-        for file_path in test_files:
+        for file_path in legacy_files:
             file_path.write_bytes(b"fake converted content")
+
+        # Create test files in subdirectory structure (current)
+        video_dirs = [
+            converted_dir / "video3",
+            converted_dir / "video4",
+        ]
+
+        subdirectory_files = []
+        for video_dir in video_dirs:
+            video_dir.mkdir(exist_ok=True)
+            video_file = video_dir / f"{video_dir.name}_dvd.mpg"
+            thumb_file = video_dir / f"{video_dir.name}_thumb.jpg"
+            video_file.write_bytes(b"fake converted video")
+            thumb_file.write_bytes(b"fake thumbnail")
+            subdirectory_files.extend([video_file, thumb_file])
+
+        # Create metadata file
+        metadata_file = converted_dir / "converted_metadata.json"
+        metadata_file.write_text(
+            '{"video3": {"path": "test"}, "video4": {"path": "test"}}'
+        )
+
+        # Create hidden file that should be preserved
+        hidden_file = converted_dir / ".in-progress"
+        hidden_file.mkdir(exist_ok=True)
+        (hidden_file / "temp.txt").write_bytes(b"in progress content")
 
         stats = cleanup_manager.clean_conversions()
 
-        assert stats.files_removed == 2
-        assert stats.directories_removed == 0
+        # Remove 2 legacy + 4 subdirectory + 1 metadata = 7 files
+        # Should remove 2 video subdirectories
+        assert stats.files_removed == 7
+        assert stats.directories_removed == 2
         assert stats.bytes_freed > 0
 
-        # Verify files were removed
-        for file_path in test_files:
+        # Verify legacy files were removed
+        for file_path in legacy_files:
             assert not file_path.exists()
+
+        # Verify subdirectory files were removed
+        for file_path in subdirectory_files:
+            assert not file_path.exists()
+
+        # Verify subdirectories were removed
+        for video_dir in video_dirs:
+            assert not video_dir.exists()
+
+        # Verify metadata file was removed
+        assert not metadata_file.exists()
+
+        # Verify hidden directory was preserved
+        assert hidden_file.exists()
+        assert (hidden_file / "temp.txt").exists()
 
     def test_clean_dvd_output_with_video_ts(self, cleanup_manager, temp_directories):
         """Test cleaning DVD output directories."""
