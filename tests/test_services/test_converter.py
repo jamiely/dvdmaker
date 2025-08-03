@@ -957,14 +957,23 @@ class TestVideoConverterCarDVDCompatibility:
             input_path, output_path, "720x480", "29.97"
         )
 
-        # Should use lower bitrate and PCM audio for compatibility
-        assert "4000k" in cmd  # Lower video bitrate
-        assert "pcm_s16le" in cmd  # PCM audio instead of AC-3
-        assert "1411k" in cmd  # PCM audio bitrate
+        # Should use conservative settings for car DVD compatibility
+        assert "3500k" in cmd  # Conservative video bitrate (both -b:v and -minrate)
+        assert "6000k" in cmd  # Conservative max rate
+        assert "ac3" in cmd  # AC-3 audio (more compatible than PCM)
+        assert "192k" in cmd  # Standard AC-3 bitrate
+        assert "12" in cmd  # Shorter GOP size
+        assert "0" in cmd  # No B-frames for compatibility
 
-        # Should include interlacing flags
-        assert "+ilme+ildct" in cmd
-        assert "bt470bg" in cmd or "smpte170m" in cmd  # Color space
+        # Should include strict DVD-Video spec compliance flags
+        assert "+ilme+ildct" in cmd  # Interlaced motion estimation and DCT
+        assert "1" in cmd  # Top field first (-top 1)
+        assert "yadif=0:-1:0,setsar=32/27" in cmd  # Deinterlacing and SAR filter
+
+        # Should NOT include incompatible flags
+        assert "+aic" not in cmd  # Not DVD spec compliant
+        assert "+mv4" not in cmd  # 4MV not supported by MPEG-2
+        assert "+bpyramid" not in cmd  # B-frame pyramid not compatible with MPEG-2
 
     def test_build_conversion_command_standard_mode(self, video_converter, tmp_path):
         """Test conversion command with standard DVD settings."""

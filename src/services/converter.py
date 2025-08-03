@@ -333,69 +333,128 @@ class VideoConverter(BaseService):
         """
         ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
 
-        # Determine interlaced settings based on format
+        # Determine format-specific settings
         is_ntsc = "480" in resolution
-        gop_size = "15" if is_ntsc else "12"  # GOP size for NTSC/PAL
 
-        cmd = ffmpeg_cmd + [
-            "-i",
-            str(input_path),
-            "-c:v",
-            self.VIDEO_CODEC,
-            "-pix_fmt",
-            "yuv420p",  # Standard DVD pixel format
-            "-b:v",
-            "4000k" if self.settings.car_dvd_compatibility else self.VIDEO_BITRATE,
-            "-s",
-            resolution,
-            "-r",
-            framerate,
-            "-aspect",
-            self.settings.aspect_ratio,
-            # Video encoding settings for better car DVD player compatibility
-            "-flags",
-            "+ilme+ildct",  # Enable interlaced motion estimation and DCT
-            "-top",
-            "1",  # Top field first for interlaced content
-            "-g",
-            gop_size,  # GOP size (15 for NTSC, 12 for PAL)
-            "-bf",
-            "2",  # B-frames
-            "-sc_threshold",
-            "40",  # Scene change threshold
-            "-colorspace",
-            "bt470bg" if not is_ntsc else "smpte170m",  # Color space for PAL/NTSC
-            "-color_primaries",
-            "bt470bg" if not is_ntsc else "smpte170m",
-            "-color_trc",
-            "gamma28" if not is_ntsc else "smpte170m",
-            # Audio settings - use PCM for car DVD compatibility, AC-3 otherwise
-            "-c:a",
-            "pcm_s16le" if self.settings.car_dvd_compatibility else self.AUDIO_CODEC,
-            "-b:a",
-            "1411k" if self.settings.car_dvd_compatibility else self.AUDIO_BITRATE,
-            "-ac",
-            "2",  # Stereo audio
-            "-ar",
-            "48000",  # 48kHz sample rate for DVD
-            # DVD multiplexing settings
-            "-f",
-            "dvd",  # DVD format for proper multiplexing
-            "-muxrate",
-            "10080000",  # DVD mux rate (10.08 Mbps)
-            "-maxrate",
-            "8000000",  # Lower max rate for better compatibility
-            "-minrate",
-            "0",  # Minimum video bitrate
-            "-bufsize",
-            "1835008",  # DVD buffer size
-            "-packetsize",
-            "2048",  # DVD packet size
-            "-muxpreload",
-            "0.2",  # Preload time for multiplexer
-            "-y",  # Overwrite output file
-            str(output_path),
-        ]
+        if self.settings.car_dvd_compatibility:
+            self.logger.debug("Using car DVD compatibility encoding settings")
+            # Conservative settings for maximum car DVD player compatibility
+            # Based on strict DVD-Video spec compliance for Honda Odyssey and similar
+            cmd = ffmpeg_cmd + [
+                "-i",
+                str(input_path),
+                "-c:v",
+                self.VIDEO_CODEC,
+                "-pix_fmt",
+                "yuv420p",  # Standard DVD pixel format
+                # Interlaced encoding (DVD spec assumes interlaced, top-field-first)
+                "-flags",
+                "+ilme+ildct",  # Interlaced motion estimation and DCT
+                "-top",
+                "1",  # Top field first
+                # Video bitrate settings
+                "-b:v",
+                "3500k",  # Conservative bitrate for car players
+                "-maxrate",
+                "6000k",  # Lower max rate for compatibility
+                "-minrate",
+                "3500k",  # Match average bitrate to avoid buffer under-runs
+                "-bufsize",
+                "1835008",  # DVD buffer size
+                "-s",
+                resolution,
+                "-r",
+                framerate,
+                # Aspect ratio handling - set both DAR and SAR for compatibility
+                "-aspect",
+                self.settings.aspect_ratio,
+                "-vf",
+                "yadif=0:-1:0,setsar=32/27",  # Deinterlace if needed + set SAR for 16:9
+                # GOP settings for car DVD compatibility
+                "-g",
+                "12",  # Shorter GOP for better seeking
+                "-bf",
+                "0",  # No B-frames for better compatibility
+                # Audio settings - AC-3 is more universally supported than PCM
+                "-c:a",
+                self.AUDIO_CODEC,  # Use AC-3 instead of PCM
+                "-b:a",
+                "192k",  # Standard AC-3 bitrate for DVD
+                "-ac",
+                "2",  # Stereo audio
+                "-ar",
+                "48000",  # 48kHz sample rate for DVD
+                # DVD multiplexing settings (simplified - let -f dvd handle details)
+                "-f",
+                "dvd",  # DVD format for proper multiplexing
+                "-y",  # Overwrite output file
+                str(output_path),
+            ]
+        else:
+            # Standard encoding with more advanced settings
+            gop_size = "15" if is_ntsc else "12"  # GOP size for NTSC/PAL
+
+            cmd = ffmpeg_cmd + [
+                "-i",
+                str(input_path),
+                "-c:v",
+                self.VIDEO_CODEC,
+                "-pix_fmt",
+                "yuv420p",  # Standard DVD pixel format
+                "-b:v",
+                self.VIDEO_BITRATE,
+                "-s",
+                resolution,
+                "-r",
+                framerate,
+                "-aspect",
+                self.settings.aspect_ratio,
+                # Advanced video encoding settings
+                "-flags",
+                "+ilme+ildct",  # Enable interlaced motion estimation and DCT
+                "-top",
+                "1",  # Top field first for interlaced content
+                "-g",
+                gop_size,  # GOP size (15 for NTSC, 12 for PAL)
+                "-bf",
+                "2",  # B-frames
+                "-flags2",
+                "+bpyramid",  # B-frame pyramid (standard mode only)
+                "-sc_threshold",
+                "40",  # Scene change threshold
+                "-colorspace",
+                "bt470bg" if not is_ntsc else "smpte170m",  # Color space for PAL/NTSC
+                "-color_primaries",
+                "bt470bg" if not is_ntsc else "smpte170m",
+                "-color_trc",
+                "gamma28" if not is_ntsc else "smpte170m",
+                # Audio settings
+                "-c:a",
+                self.AUDIO_CODEC,
+                "-b:a",
+                self.AUDIO_BITRATE,
+                "-ac",
+                "2",  # Stereo audio
+                "-ar",
+                "48000",  # 48kHz sample rate for DVD
+                # DVD multiplexing settings
+                "-f",
+                "dvd",  # DVD format for proper multiplexing
+                "-muxrate",
+                "10080000",  # DVD mux rate (10.08 Mbps)
+                "-maxrate",
+                "8000000",  # Lower max rate for better compatibility
+                "-minrate",
+                "0",  # Minimum video bitrate
+                "-bufsize",
+                "1835008",  # DVD buffer size
+                "-packetsize",
+                "2048",  # DVD packet size
+                "-muxpreload",
+                "0.2",  # Preload time for multiplexer
+                "-y",  # Overwrite output file
+                str(output_path),
+            ]
 
         self.logger.debug(f"Built conversion command: {' '.join(cmd)}")
         return cmd
