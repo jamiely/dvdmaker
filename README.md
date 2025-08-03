@@ -5,9 +5,9 @@ Convert YouTube playlists into physical DVDs.
 ## Features
 
 - **Video Downloading**: Download YouTube playlists using yt-dlp with intelligent caching
-- **Video Processing**: Convert videos to DVD-compatible format using ffmpeg
+- **Video Processing**: Convert videos to DVD-compatible format using ffmpeg with advanced car DVD player compatibility
 - **DVD Authoring**: Create DVD structure with single title and multiple chapters (one per video)
-- **Smart Caching**: Intelligent file caching to avoid redundant operations
+- **Smart Caching**: Intelligent file caching to avoid redundant operations with comprehensive cleanup tools
 - **Filename Normalization**: ASCII filename normalization for DVD compatibility
 - **Progress Tracking**: Real-time progress reporting for all operations
 - **Error Handling**: Graceful handling of missing/private videos with partial playlist success
@@ -89,6 +89,17 @@ Skip ISO generation:
 python -m dvdmaker --playlist-url "PLxxx" --no-iso
 ```
 
+Car DVD player compatibility (Honda Odyssey, etc.):
+```bash
+python -m dvdmaker --playlist-url "PLxxx" --car-dvd-compatibility
+```
+
+Clean cache files:
+```bash
+python -m dvdmaker --cleanup conversions  # Clean converted video files
+python -m dvdmaker --cleanup all          # Clean all cache types
+```
+
 ### Options
 
 #### Required
@@ -103,6 +114,7 @@ python -m dvdmaker --playlist-url "PLxxx" --no-iso
 - `--quality`: Video quality preference (default: best)
 - `--video-format`: DVD video format - NTSC (29.97fps, 720x480) or PAL (25fps, 720x576) (default: NTSC)
 - `--aspect-ratio`: DVD aspect ratio - 4:3 (standard) or 16:9 (widescreen) (default: 16:9)
+- `--car-dvd-compatibility`: Enable strict DVD-Video spec compliance for car DVD players
 
 #### DVD Options
 - `--menu-title`: Custom DVD menu title (default: playlist title)
@@ -121,6 +133,9 @@ python -m dvdmaker --playlist-url "PLxxx" --no-iso
 - `--log-file`: Specify log file path (default: logs/dvdmaker.log)
 - `--verbose`: Enable verbose console output
 - `--quiet`: Suppress all console output except errors
+
+#### Cleanup Options
+- `--cleanup`: Clean cache/output/temp files by type (downloads, conversions, dvd-output, isos, temp, all)
 
 #### Configuration
 - `--config`: Configuration file path
@@ -145,18 +160,20 @@ Converts downloaded videos to DVD-compatible formats using ffmpeg:
 
 - **DVD Format Conversion**: Converts videos to MPEG-2 with DVD-standard resolutions (720x480 NTSC/720x576 PAL)
 - **Audio Standardization**: Converts audio to AC-3 format with proper bitrates and sample rates for DVD compatibility
-- **Aspect Ratio Handling**: Automatically determines and applies appropriate DVD aspect ratios
+- **Aspect Ratio Handling**: Automatically determines and applies appropriate DVD aspect ratios with proper sample aspect ratio
 - **Frame Rate Conversion**: Handles NTSC (29.97fps) and PAL (25fps) frame rate conversion based on source material
+- **Car DVD Compatibility**: Strict DVD-Video specification compliance with interlaced encoding for maximum car player compatibility
 - **Thumbnail Generation**: Creates DVD menu thumbnails from video content
 - **Quality Validation**: Verifies converted files meet DVD specifications
 - **Intelligent Caching**: Caches converted files to avoid redundant processing
 
 Technical specifications:
-- **Video**: MPEG-2 encoding at 6Mbps bitrate
-- **Audio**: AC-3 encoding at 448kbps bitrate, stereo, 48kHz sample rate
-- **Resolution**: 720x480 (NTSC) or 720x576 (PAL)
-- **Aspect Ratio**: 16:9 widescreen (default) or 4:3 standard format
-- **Frame Rate**: 29.97fps (NTSC) or 25fps (PAL)
+- **Video**: MPEG-2 encoding with standard bitrate (6Mbps) or conservative car-compatible bitrate (3.5Mbps)
+- **Audio**: AC-3 encoding at 448kbps (standard) or 192kbps (car-compatible), stereo, 48kHz sample rate
+- **Resolution**: 720x480 (NTSC) or 720x576 (PAL) with proper interlaced encoding for car players
+- **Aspect Ratio**: 16:9 widescreen (default) or 4:3 standard format with correct sample aspect ratio
+- **Frame Rate**: 29.97fps (NTSC) or 25fps (PAL) with top-field-first interlaced encoding
+- **Car Compatibility**: Conservative GOP size (12), no B-frames, and strict DVD-Video spec compliance
 
 ### DVD Authoring
 
@@ -175,6 +192,25 @@ Technical specifications:
 - **Title Structure**: Single title with multiple chapters (sequential playlist videos)
 - **Menu System**: Simple chapter selection menu with thumbnail previews
 - **Compatibility**: Playable on standard DVD players and software
+
+### Cache Management & Cleanup
+
+Comprehensive cache management system for efficient disk space usage:
+
+- **Intelligent Cleanup**: Selective removal of downloads, conversions, DVD output, ISOs, and temporary files
+- **Subdirectory Support**: Properly handles nested cache structures including video-specific subdirectories
+- **Metadata Synchronization**: Cleans both cached files and their associated metadata
+- **Progress Tracking**: Shows detailed cleanup statistics including files removed, directories cleaned, and space freed
+- **Safety Preservation**: Protects in-progress operations from accidental cleanup
+- **Granular Control**: Clean specific cache types (downloads, conversions, etc.) or all at once
+
+Cleanup types:
+- **downloads**: Downloaded video files from yt-dlp
+- **conversions**: DVD-converted video files and thumbnails (includes subdirectories)
+- **dvd-output**: Generated VIDEO_TS directory structures and DVDs
+- **isos**: Created ISO image files
+- **temp**: Temporary processing files
+- **all**: Complete cache cleanup across all types
 
 ## Development
 
