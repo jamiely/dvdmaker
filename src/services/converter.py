@@ -369,12 +369,14 @@ class VideoConverter(BaseService):
                 "-aspect",
                 self.settings.aspect_ratio,
                 "-vf",
-                "yadif=0:-1:0,setsar=32/27",  # Deinterlace if needed + set SAR for 16:9
-                # GOP settings for car DVD compatibility
+                "setsar=32/27",  # Set SAR for 16:9 aspect ratio
+                # GOP settings for car DVD compatibility (DVDStyler-inspired)
                 "-g",
-                "12",  # Shorter GOP for better seeking
+                (
+                    "18" if is_ntsc else "15"
+                ),  # DVDStyler GOP sizes: 18 for NTSC, 15 for PAL
                 "-bf",
-                "0",  # No B-frames for better compatibility
+                "2",  # Standard B-frames for DVD compatibility
                 # Audio settings - AC-3 is more universally supported than PCM
                 "-c:a",
                 self.AUDIO_CODEC,  # Use AC-3 instead of PCM
@@ -392,7 +394,9 @@ class VideoConverter(BaseService):
             ]
         else:
             # Standard encoding with more advanced settings
-            gop_size = "15" if is_ntsc else "12"  # GOP size for NTSC/PAL
+            gop_size = (
+                "18" if is_ntsc else "15"
+            )  # DVDStyler GOP sizes: 18 for NTSC, 15 for PAL
 
             cmd = ffmpeg_cmd + [
                 "-i",

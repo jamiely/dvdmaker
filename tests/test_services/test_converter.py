@@ -962,13 +962,13 @@ class TestVideoConverterCarDVDCompatibility:
         assert "6000k" in cmd  # Conservative max rate
         assert "ac3" in cmd  # AC-3 audio (more compatible than PCM)
         assert "192k" in cmd  # Standard AC-3 bitrate
-        assert "12" in cmd  # Shorter GOP size
-        assert "0" in cmd  # No B-frames for compatibility
+        assert "18" in cmd  # DVDStyler GOP size for NTSC
+        assert "2" in cmd  # Standard B-frames for DVD compatibility
 
         # Should include strict DVD-Video spec compliance flags
         assert "+ilme+ildct" in cmd  # Interlaced motion estimation and DCT
         assert "1" in cmd  # Top field first (-top 1)
-        assert "yadif=0:-1:0,setsar=32/27" in cmd  # Deinterlacing and SAR filter
+        assert "setsar=32/27" in cmd  # SAR filter for aspect ratio
 
         # Should NOT include incompatible flags
         assert "+aic" not in cmd  # Not DVD spec compliant
@@ -990,6 +990,36 @@ class TestVideoConverterCarDVDCompatibility:
         assert "6000k" in cmd  # Standard video bitrate
         assert "ac3" in cmd  # AC-3 audio
         assert "448k" in cmd  # AC-3 audio bitrate
+
+    def test_build_conversion_command_pal_gop_size(self, video_converter, tmp_path):
+        """Test GOP size for PAL format matches DVDStyler (15 for PAL)."""
+        video_converter.settings.car_dvd_compatibility = True
+
+        input_path = tmp_path / "input.mp4"
+        output_path = tmp_path / "output.mpv"
+
+        # Test PAL resolution (720x576)
+        cmd = video_converter._build_conversion_command(
+            input_path, output_path, "720x576", "25"
+        )
+
+        assert "15" in cmd  # DVDStyler GOP size for PAL
+        assert "2" in cmd  # B-frames should still be 2
+
+    def test_build_conversion_command_ntsc_gop_size(self, video_converter, tmp_path):
+        """Test GOP size for NTSC format matches DVDStyler (18 for NTSC)."""
+        video_converter.settings.car_dvd_compatibility = True
+
+        input_path = tmp_path / "input.mp4"
+        output_path = tmp_path / "output.mpv"
+
+        # Test NTSC resolution (720x480)
+        cmd = video_converter._build_conversion_command(
+            input_path, output_path, "720x480", "29.97"
+        )
+
+        assert "18" in cmd  # DVDStyler GOP size for NTSC
+        assert "2" in cmd  # B-frames should still be 2
 
 
 class TestVideoConverterCleanup:
