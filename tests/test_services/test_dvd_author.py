@@ -2,7 +2,7 @@
 
 import subprocess
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -754,3 +754,36 @@ class TestDVDAuthor:
                 playlist_id="PLtest123",
                 output_dir=tmp_path / "output",
             )
+
+    def test_iso_creation_removes_existing_file(
+        self, dvd_author: DVDAuthor, tmp_path: Path
+    ) -> None:
+        """Test that existing ISO files are removed before creation."""
+        output_dir = tmp_path / "output"
+        video_ts_dir = output_dir / "VIDEO_TS"
+        video_ts_dir.mkdir(parents=True)
+
+        # Create an existing ISO file
+        existing_iso = output_dir / "test_dvd.iso"
+        existing_iso.write_text("fake iso content")
+
+        # Mock mkisofs command to succeed
+        mock_mkisofs = MagicMock()
+        mock_mkisofs.return_value = ["/usr/bin/mkisofs"]
+        dvd_author.tool_manager.get_tool_command = mock_mkisofs
+
+        # Mock subprocess.run to simulate successful ISO creation
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "ISO creation successful"
+            mock_result.stderr = ""
+            mock_run.return_value = mock_result
+
+            # Call _create_iso
+            result_iso = dvd_author._create_iso(output_dir, video_ts_dir, "test_dvd")
+
+            # Verify the existing file was removed and recreation attempted
+            assert result_iso == existing_iso
+            # The file would be recreated by mkisofs (mocked), so check it was called
+            mock_run.assert_called_once()

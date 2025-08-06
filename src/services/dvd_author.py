@@ -314,6 +314,9 @@ class DVDAuthor(BaseService):
                 )
                 authored_dvd.iso_file = iso_file
 
+            # Clean up temporary menu files
+            self._cleanup_temp_menu_files(playlist_output_dir)
+
             self._report_progress("DVD creation complete", 1.0)
             self.logger.info(
                 f"DVD creation completed successfully: {authored_dvd.size_gb:.2f}GB, "
@@ -389,8 +392,127 @@ class DVDAuthor(BaseService):
         )
         return chapters
 
+    def _create_menu_video(
+        self,
+        source_video: Path,
+        output_path: Path,
+        duration: float = 0.5,
+        aspect_ratio: Optional[str] = None,
+    ) -> None:
+        """Create a short menu video clip from source video using ffmpeg.
+
+        Args:
+            source_video: Source video file to clip from
+            output_path: Output path for menu video
+            duration: Duration in seconds for menu clip
+            aspect_ratio: Target aspect ratio for menu video (defaults to settings)
+        """
+        try:
+            ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
+
+            # Create a short clip from the beginning of the video for menu
+            cmd = ffmpeg_cmd + [
+                "-i",
+                str(source_video),
+                "-t",
+                str(duration),  # Duration of clip
+                "-c:v",
+                "mpeg2video",  # DVD video codec
+                "-c:a",
+                "ac3",  # DVD audio codec
+                "-b:v",
+                "8000k",  # High bitrate for menu (like DVDStyler)
+                "-b:a",
+                "192k",  # Standard AC3 bitrate
+                "-r",
+                "29.97" if self.settings.video_format.upper() == "NTSC" else "25",
+                "-s",
+                (
+                    "720x480"
+                    if self.settings.video_format.upper() == "NTSC"
+                    else "720x576"
+                ),
+                "-aspect",
+                aspect_ratio if aspect_ratio else self.settings.aspect_ratio,
+                "-f",
+                "dvd",
+                "-y",  # Overwrite output
+                str(output_path),
+            ]
+
+            self.logger.debug(f"Creating menu video: {output_path.name}")
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            if result.stderr:
+                self.logger.debug(f"ffmpeg menu creation stderr: {result.stderr}")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.warning(f"Failed to create menu video {output_path}: {e}")
+            # Create a minimal black video as fallback
+            self._create_black_menu_video(
+                output_path, duration, aspect_ratio or self.settings.aspect_ratio
+            )
+        except Exception as e:
+            self.logger.warning(f"Menu video creation error: {e}")
+            self._create_black_menu_video(
+                output_path, duration, aspect_ratio or self.settings.aspect_ratio
+            )
+
+    def _create_black_menu_video(
+        self, output_path: Path, duration: float = 0.5, aspect_ratio: str = ""
+    ) -> None:
+        """Create a black menu video as fallback."""
+        try:
+            ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
+
+            # Create black video
+            cmd = ffmpeg_cmd + [
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=black:size=720x480:duration={duration}:rate=29.97",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=channel_layout=stereo:sample_rate=48000",
+                "-c:v",
+                "mpeg2video",
+                "-c:a",
+                "ac3",
+                "-b:v",
+                "8000k",
+                "-b:a",
+                "192k",
+                "-aspect",
+                aspect_ratio if aspect_ratio else self.settings.aspect_ratio,
+                "-t",
+                str(duration),
+                "-f",
+                "dvd",
+                "-y",
+                str(output_path),
+            ]
+
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            self.logger.debug(f"Created fallback black menu video: {output_path.name}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to create fallback menu video: {e}")
+
+    def _cleanup_temp_menu_files(self, playlist_output_dir: Path) -> None:
+        """Clean up temporary menu files after DVD creation."""
+        temp_dir = playlist_output_dir / "temp_menus"
+        if temp_dir.exists():
+            try:
+                import shutil
+
+                shutil.rmtree(temp_dir)
+                self.logger.debug("Cleaned up temporary menu files")
+            except Exception as e:
+                self.logger.warning(f"Failed to clean up temporary menu files: {e}")
+
     def _create_dvd_xml(self, dvd_structure: DVDStructure, video_ts_dir: Path) -> Path:
-        """Create dvdauthor XML configuration.
+        """Create dvdauthor XML configuration with DVDStyler-inspired menu structure.
 
         Args:
             dvd_structure: DVD structure to create XML for
@@ -407,12 +529,15 @@ class DVDAuthor(BaseService):
         # Determine video format for DVD
         video_format = self.settings.video_format.lower()  # dvdauthor expects lowercase
 
-        # Create vmgm (Video Manager Menu)
+        ordered_chapters = dvd_structure.get_chapters_ordered()
+        temp_dir = video_ts_dir.parent / "temp_menus"
+        temp_dir.mkdir(exist_ok=True)
+
+        # Create VMGM (Video Manager Menu) like DVDStyler
         vmgm = ET.SubElement(dvdauthor, "vmgm")
         menus = ET.SubElement(vmgm, "menus")
 
-        # Add video format to menus (satisfies VMGM)
-        # Force 4:3 aspect ratio for VMGM to improve car DVD player compatibility
+        # Add video and audio specifications for VMGM
         vmgm_aspect = (
             "4:3" if self.settings.car_dvd_compatibility else self.settings.aspect_ratio
         )
@@ -423,37 +548,177 @@ class DVDAuthor(BaseService):
                 f"{self.settings.aspect_ratio} to 4:3 for better compatibility"
             )
 
-        ET.SubElement(menus, "video", format=video_format, aspect=vmgm_aspect)
+        # Create video element with aspect ratio (only add widescreen for 16:9)
+        if vmgm_aspect == "16:9":
+            ET.SubElement(
+                menus,
+                "video",
+                format=video_format,
+                aspect=vmgm_aspect,
+                widescreen="nopanscan",
+            )
+        else:
+            ET.SubElement(
+                menus,
+                "video",
+                format=video_format,
+                aspect=vmgm_aspect,
+            )
+        ET.SubElement(menus, "audio", lang="EN")
 
-        pgc = ET.SubElement(menus, "pgc")
+        # Add subtitle support
+        subpicture = ET.SubElement(menus, "subpicture", lang="EN")
+        ET.SubElement(
+            subpicture,
+            "stream",
+            id="0",
+            mode="widescreen" if vmgm_aspect == "16:9" else "normal",
+        )
+        if vmgm_aspect == "16:9":
+            ET.SubElement(subpicture, "stream", id="1", mode="letterbox")
 
-        # Add menu title
-        ET.SubElement(pgc, "pre").text = "jump title 1;"
+        pgc = ET.SubElement(menus, "pgc", entry="title")
+
+        # Create VMGM menu video (like DVDStyler's menu0-0.mpg)
+        if ordered_chapters:
+            vmgm_menu_file = temp_dir / "menu0-0.mpg"
+            self._create_menu_video(
+                ordered_chapters[0].video_file.file_path,
+                vmgm_menu_file,
+                aspect_ratio=vmgm_aspect,
+            )
+
+            # Add buttons and menu video reference like DVDStyler
+            ET.SubElement(pgc, "button", name="button01").text = "g0=1;jump title 1;"
+            if len(ordered_chapters) > 1:
+                ET.SubElement(pgc, "button", name="button02").text = (
+                    "g0=0;jump titleset 1 menu;"
+                )
+
+            ET.SubElement(pgc, "vob", file=str(vmgm_menu_file), pause="inf")
+            ET.SubElement(pgc, "pre").text = "g1=101;"
+        else:
+            # Fallback to simple jump if no chapters
+            ET.SubElement(pgc, "pre").text = "jump title 1;"
 
         # Create titleset
         titleset = ET.SubElement(dvdauthor, "titleset")
+
+        # Add titleset menus if we have multiple chapters (like DVDStyler)
+        if len(ordered_chapters) > 1:
+            titleset_menus = ET.SubElement(titleset, "menus")
+
+            # Video and audio specs for titleset menus (only add widescreen for 16:9)
+            if self.settings.aspect_ratio == "16:9":
+                ET.SubElement(
+                    titleset_menus,
+                    "video",
+                    format=video_format,
+                    aspect=self.settings.aspect_ratio,
+                    widescreen="nopanscan",
+                )
+            else:
+                ET.SubElement(
+                    titleset_menus,
+                    "video",
+                    format=video_format,
+                    aspect=self.settings.aspect_ratio,
+                )
+            ET.SubElement(titleset_menus, "audio", lang="EN")
+
+            # Subtitle support
+            ts_subpicture = ET.SubElement(titleset_menus, "subpicture", lang="EN")
+            ET.SubElement(
+                ts_subpicture,
+                "stream",
+                id="0",
+                mode="widescreen" if self.settings.aspect_ratio == "16:9" else "normal",
+            )
+            if self.settings.aspect_ratio == "16:9":
+                ET.SubElement(ts_subpicture, "stream", id="1", mode="letterbox")
+
+            menu_pgc = ET.SubElement(titleset_menus, "pgc", entry="ptt,root")
+
+            # Create titleset menu video (like DVDStyler's menu1-0.mpg)
+            titleset_menu_file = temp_dir / "menu1-0.mpg"
+            # Use second video or first if only one
+            menu_source = (
+                ordered_chapters[1]
+                if len(ordered_chapters) > 1
+                else ordered_chapters[0]
+            )
+            self._create_menu_video(
+                menu_source.video_file.file_path,
+                titleset_menu_file,
+                aspect_ratio=self.settings.aspect_ratio,
+            )
+
+            # Create chapter navigation buttons (limit to 6 like DVDStyler's first menu)
+            max_buttons = min(len(ordered_chapters), 6)
+            for i in range(max_buttons):
+                chapter_num = i + 1
+                button_name = f"button{i+1:02d}"
+                button_text = f"g0=0;jump title 1 chapter {chapter_num};"
+                ET.SubElement(menu_pgc, "button", name=button_name).text = button_text
+
+            # Add navigation buttons
+            ET.SubElement(menu_pgc, "button", name="button07").text = (
+                "g0=0;jump vmgm menu 1;"
+            )
+
+            # Add menu video and DVDStyler-style pre command
+            ET.SubElement(menu_pgc, "vob", file=str(titleset_menu_file), pause="inf")
+            pre_text = (
+                "if (g1 & 0x8000 !=0) {g1^=0x8000;if (g1==101) jump vmgm menu 1;}g1=1;"
+            )
+            ET.SubElement(menu_pgc, "pre").text = pre_text
+
+        # Create titles section
         titles = ET.SubElement(titleset, "titles")
 
-        # Add video format to titles
-        ET.SubElement(
-            titles, "video", format=video_format, aspect=self.settings.aspect_ratio
-        )
+        # Add video format to titles (only add widescreen for 16:9)
+        if self.settings.aspect_ratio == "16:9":
+            ET.SubElement(
+                titles,
+                "video",
+                format=video_format,
+                aspect=self.settings.aspect_ratio,
+                widescreen="nopanscan",
+            )
+        else:
+            ET.SubElement(
+                titles,
+                "video",
+                format=video_format,
+                aspect=self.settings.aspect_ratio,
+            )
+        ET.SubElement(titles, "audio", lang="EN")
 
         title_pgc = ET.SubElement(titles, "pgc")
 
-        # Add chapters as cells
-        ordered_chapters = dvd_structure.get_chapters_ordered()
-        for chapter in ordered_chapters:
+        # Add chapters as individual vob entries with chapter marks
+        for i, chapter in enumerate(ordered_chapters, 1):
             # Normalize filename for DVD compatibility
             normalized_path = self._normalize_video_path(chapter.video_file.file_path)
-            ET.SubElement(title_pgc, "vob", file=str(normalized_path), chapters="0")
+            ET.SubElement(title_pgc, "vob", file=str(normalized_path), chapters="0:00")
+
+        # Add DVDStyler-inspired post command for menu navigation
+        if len(ordered_chapters) > 1:
+            ET.SubElement(title_pgc, "post").text = "g1|=0x8000; call menu entry root;"
 
         # Write XML to temporary file
         xml_file = video_ts_dir.parent / "dvd_structure.xml"
         tree = ET.ElementTree(dvdauthor)
         tree.write(xml_file, encoding="utf-8", xml_declaration=True)
 
-        self.logger.debug(f"Created dvdauthor XML: {xml_file}")
+        self.logger.debug(
+            f"Created DVDStyler-inspired dvdauthor XML with menu videos: {xml_file}"
+        )
+        if len(ordered_chapters) > 1:
+            self.logger.info(
+                f"Generated menu videos for {len(ordered_chapters)} chapter navigation"
+            )
+
         return xml_file
 
     def _normalize_video_path(self, video_path: Path) -> Path:
@@ -579,6 +844,11 @@ class DVDAuthor(BaseService):
             clean_title = "dvd"
 
         iso_file = output_dir / f"{clean_title}.iso"
+
+        # Remove existing ISO file to prevent bloat between runs
+        if iso_file.exists():
+            iso_file.unlink()
+            self.logger.debug(f"Removed existing ISO file: {iso_file}")
 
         # Use ToolManager to get mkisofs/genisoimage command
         try:
