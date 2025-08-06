@@ -99,6 +99,11 @@ Examples:
         action="store_true",
         help="Skip ISO image generation (ISO creation is enabled by default)",
     )
+    parser.add_argument(
+        "--autoplay",
+        action="store_true",
+        help="Enable DVD autoplay (automatically start playing videos on insertion)",
+    )
 
     # Cache behavior options
     parser.add_argument(
@@ -210,6 +215,8 @@ def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Se
         updates["aspect_ratio"] = args.aspect_ratio
     if args.no_iso:
         updates["generate_iso"] = False
+    if args.autoplay:
+        updates["autoplay"] = True
 
     # Cache settings
     if args.force_download:

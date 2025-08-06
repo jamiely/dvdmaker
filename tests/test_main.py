@@ -296,6 +296,7 @@ class TestSettingsMerge:
             video_format=None,
             aspect_ratio=None,
             no_iso=False,
+            autoplay=False,
             force_download=False,
             force_convert=False,
             use_system_tools=False,
@@ -324,6 +325,7 @@ class TestSettingsMerge:
             video_format="PAL",
             aspect_ratio="4:3",
             no_iso=True,
+            autoplay=True,
             force_download=True,
             force_convert=True,
             use_system_tools=False,
@@ -343,6 +345,7 @@ class TestSettingsMerge:
         assert merged.video_format == "PAL"
         assert merged.aspect_ratio == "4:3"
         assert merged.generate_iso is False
+        assert merged.autoplay is True
         assert merged.force_download is True
         assert merged.force_convert is True
         assert merged.download_tools is True
@@ -364,6 +367,7 @@ class TestSettingsMerge:
             video_format=None,
             aspect_ratio=None,
             no_iso=False,
+            autoplay=False,
             force_download=False,
             force_convert=False,
             use_system_tools=True,
@@ -391,6 +395,7 @@ class TestSettingsMerge:
             video_format="PAL",
             aspect_ratio=None,
             no_iso=False,
+            autoplay=False,
             force_download=False,
             force_convert=False,
             use_system_tools=False,
@@ -422,6 +427,7 @@ class TestSettingsMerge:
             video_format=None,
             aspect_ratio="4:3",
             no_iso=False,
+            autoplay=False,
             force_download=False,
             force_convert=False,
             use_system_tools=False,
@@ -1682,6 +1688,7 @@ class TestMergeSettingsQuietFlag:
             video_format=None,
             aspect_ratio=None,
             no_iso=False,
+            autoplay=False,
             force_download=False,
             force_convert=False,
             use_system_tools=False,

@@ -523,8 +523,12 @@ class DVDAuthor(BaseService):
         """
         self.logger.debug(f"Creating dvdauthor XML for '{dvd_structure.menu_title}'")
 
-        # Create XML structure
-        dvdauthor = ET.Element("dvdauthor", dest=str(video_ts_dir))
+        # Create XML structure with optional jumppad for autoplay
+        if self.settings.autoplay:
+            # jumppad=0 enables First Play Program Chain for autoplay
+            dvdauthor = ET.Element("dvdauthor", dest=str(video_ts_dir), jumppad="0")
+        else:
+            dvdauthor = ET.Element("dvdauthor", dest=str(video_ts_dir))
 
         # Determine video format for DVD
         video_format = self.settings.video_format.lower()  # dvdauthor expects lowercase
@@ -595,6 +599,7 @@ class DVDAuthor(BaseService):
                     "g0=0;jump titleset 1 menu;"
                 )
 
+            # Add menu video (jumppad attribute controls autoplay behavior)
             ET.SubElement(pgc, "vob", file=str(vmgm_menu_file), pause="inf")
             ET.SubElement(pgc, "pre").text = "g1=101;"
         else:
