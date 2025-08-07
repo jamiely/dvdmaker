@@ -109,12 +109,19 @@ Examples:
     parser.add_argument(
         "--force-download",
         action="store_true",
-        help="Force re-download even if cached",
+        help="Force re-download all video files and refresh playlist data, "
+        "even if cached",
     )
     parser.add_argument(
         "--force-convert",
         action="store_true",
         help="Force re-conversion even if cached",
+    )
+    parser.add_argument(
+        "--refresh-playlist",
+        action="store_true",
+        help="Refresh playlist data to detect newly added videos "
+        "(without re-downloading existing videos)",
     )
 
     # Tool management options
@@ -223,6 +230,8 @@ def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Se
         updates["force_download"] = True
     if args.force_convert:
         updates["force_convert"] = True
+    if args.refresh_playlist:
+        updates["refresh_playlist"] = True
 
     # Tool settings
     if args.use_system_tools:

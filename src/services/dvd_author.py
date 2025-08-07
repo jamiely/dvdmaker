@@ -314,8 +314,8 @@ class DVDAuthor(BaseService):
                 )
                 authored_dvd.iso_file = iso_file
 
-            # Clean up temporary menu files
-            self._cleanup_temp_menu_files(playlist_output_dir)
+            # Skip cleanup of temporary menu files for debugging
+            # self._cleanup_temp_menu_files(playlist_output_dir)
 
             self._report_progress("DVD creation complete", 1.0)
             self.logger.info(
@@ -711,10 +711,19 @@ class DVDAuthor(BaseService):
         if len(ordered_chapters) > 1:
             ET.SubElement(title_pgc, "post").text = "g1|=0x8000; call menu entry root;"
 
-        # Write XML to temporary file
+        # Write XML to temporary file with pretty formatting
         xml_file = video_ts_dir.parent / "dvd_structure.xml"
-        tree = ET.ElementTree(dvdauthor)
-        tree.write(xml_file, encoding="utf-8", xml_declaration=True)
+
+        # Pretty print the XML for debugging
+        import xml.dom.minidom
+
+        rough_string = ET.tostring(dvdauthor, encoding="utf-8")
+        reparsed = xml.dom.minidom.parseString(rough_string)
+        pretty_xml = reparsed.toprettyxml(indent="  ", encoding="utf-8")
+
+        # Write pretty formatted XML
+        with open(xml_file, "wb") as f:
+            f.write(pretty_xml)
 
         self.logger.debug(
             f"Created DVDStyler-inspired dvdauthor XML with menu videos: {xml_file}"

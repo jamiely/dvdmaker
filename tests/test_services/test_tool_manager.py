@@ -1011,13 +1011,15 @@ class TestYtDlpUpdateFunctionality:
         result = self.tool_manager.compare_versions("2024.01.04", "invalid")
         assert result is False
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "get_tool_version")
     @patch.object(ToolManager, "get_latest_ytdlp_version")
     @patch.object(ToolManager, "download_tool")
     def test_check_and_update_ytdlp_no_current_version(
-        self, mock_download, mock_latest, mock_current
+        self, mock_download, mock_latest, mock_current, mock_should_check
     ):
         """Test yt-dlp update when no current version exists."""
+        mock_should_check.return_value = True  # Allow update check
         mock_current.return_value = None
         mock_download.return_value = True
 
@@ -1052,6 +1054,7 @@ class TestYtDlpUpdateFunctionality:
 
         assert result is True
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_version")
     @patch.object(ToolManager, "get_latest_ytdlp_version")
@@ -1068,6 +1071,7 @@ class TestYtDlpUpdateFunctionality:
         mock_latest,
         mock_current,
         mock_available,
+        mock_should_check,
         tmp_path,
     ):
         """Test successful yt-dlp update."""
@@ -1075,6 +1079,7 @@ class TestYtDlpUpdateFunctionality:
         current_path = tmp_path / "yt-dlp"
         current_path.write_text("fake binary")
 
+        mock_should_check.return_value = True  # Allow update check
         mock_available.return_value = True  # Tool is available locally
         mock_current.side_effect = [
             "2023.12.30",
@@ -1091,6 +1096,7 @@ class TestYtDlpUpdateFunctionality:
         mock_download.assert_called_once_with("yt-dlp")
         mock_copy.assert_called_once()  # Backup created
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "get_tool_version")
     @patch.object(ToolManager, "get_latest_ytdlp_version")
     @patch.object(ToolManager, "compare_versions")
@@ -1105,6 +1111,7 @@ class TestYtDlpUpdateFunctionality:
         mock_compare,
         mock_latest,
         mock_current,
+        mock_should_check,
         tmp_path,
     ):
         """Test yt-dlp update when download fails."""
@@ -1113,6 +1120,7 @@ class TestYtDlpUpdateFunctionality:
         current_path.write_text("fake binary")
         backup_path = current_path.with_suffix(".backup-2023.12.30")
 
+        mock_should_check.return_value = True  # Allow update check
         mock_current.return_value = "2023.12.30"
         mock_latest.return_value = "2024.01.04"
         mock_compare.return_value = True  # Update needed
@@ -1127,14 +1135,90 @@ class TestYtDlpUpdateFunctionality:
         assert result is False
         mock_download.assert_called_once_with("yt-dlp")
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "get_tool_version")
-    def test_check_and_update_ytdlp_exception_handling(self, mock_current):
+    def test_check_and_update_ytdlp_exception_handling(
+        self, mock_current, mock_should_check
+    ):
         """Test yt-dlp update exception handling."""
+        mock_should_check.return_value = True  # Allow update check
         mock_current.side_effect = Exception("Unexpected error")
 
         result = self.tool_manager.check_and_update_ytdlp()
 
         assert result is False
+
+    @patch("time.time")
+    @patch("builtins.open")
+    @patch.object(Path, "exists")
+    def test_should_check_ytdlp_update_no_file(self, mock_exists, mock_open, mock_time):
+        """Test _should_check_ytdlp_update when no previous check file exists."""
+        mock_exists.return_value = False
+
+        result = self.tool_manager._should_check_ytdlp_update()
+
+        assert result is True
+
+    @patch("time.time")
+    @patch("json.load")
+    @patch("builtins.open")
+    @patch.object(Path, "exists")
+    def test_should_check_ytdlp_update_within_24h(
+        self, mock_exists, mock_open, mock_json_load, mock_time
+    ):
+        """Test _should_check_ytdlp_update when last check was within 24 hours."""
+        mock_exists.return_value = True
+        current_time = 1000000
+        last_check_time = current_time - (12 * 3600)  # 12 hours ago
+        mock_time.return_value = current_time
+        mock_json_load.return_value = {"last_check_timestamp": last_check_time}
+
+        result = self.tool_manager._should_check_ytdlp_update()
+
+        assert result is False
+
+    @patch("time.time")
+    @patch("json.load")
+    @patch("builtins.open")
+    @patch.object(Path, "exists")
+    def test_should_check_ytdlp_update_after_24h(
+        self, mock_exists, mock_open, mock_json_load, mock_time
+    ):
+        """Test _should_check_ytdlp_update when last check was more than 24h ago."""
+        mock_exists.return_value = True
+        current_time = 1000000
+        last_check_time = current_time - (25 * 3600)  # 25 hours ago
+        mock_time.return_value = current_time
+        mock_json_load.return_value = {"last_check_timestamp": last_check_time}
+
+        result = self.tool_manager._should_check_ytdlp_update()
+
+        assert result is True
+
+    @patch("time.time")
+    @patch("json.dump")
+    @patch("builtins.open")
+    def test_record_ytdlp_check(self, mock_open, mock_json_dump, mock_time):
+        """Test _record_ytdlp_check records the current timestamp."""
+        current_time = 1000000
+        mock_time.return_value = current_time
+        mock_file = mock_open.return_value.__enter__.return_value
+
+        self.tool_manager._record_ytdlp_check()
+
+        mock_json_dump.assert_called_once_with(
+            {"last_check_timestamp": current_time}, mock_file, indent=2
+        )
+
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
+    def test_check_and_update_ytdlp_throttled(self, mock_should_check):
+        """Test check_and_update_ytdlp skips check when throttled."""
+        mock_should_check.return_value = False
+
+        result = self.tool_manager.check_and_update_ytdlp()
+
+        assert result is True
+        mock_should_check.assert_called_once()
 
 
 class TestToolManagerLogging:
@@ -1268,17 +1352,25 @@ class TestToolManagerLogging:
         assert any("Attempting to download ffmpeg" in msg for msg in info_messages)
         assert any("Successfully downloaded ffmpeg" in msg for msg in info_messages)
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
     @patch.object(ToolManager, "get_tool_version")
     @patch.object(ToolManager, "get_latest_ytdlp_version")
     def test_check_and_update_ytdlp_logging_info_messages(
-        self, mock_latest, mock_current, mock_path, mock_available, caplog
+        self,
+        mock_latest,
+        mock_current,
+        mock_path,
+        mock_available,
+        mock_should_check,
+        caplog,
     ):
         """Test check_and_update_ytdlp logs all info messages."""
         caplog.set_level("INFO")
 
         # Test scenario: yt-dlp not found locally
+        mock_should_check.return_value = True  # Allow update check
         mock_available.return_value = False
         mock_current.return_value = None
 
@@ -1301,17 +1393,26 @@ class TestToolManagerLogging:
             for msg in info_messages
         )
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
     @patch.object(ToolManager, "get_tool_version")
     @patch.object(ToolManager, "get_latest_ytdlp_version")
     @patch.object(ToolManager, "compare_versions")
     def test_check_and_update_ytdlp_up_to_date_logging(
-        self, mock_compare, mock_latest, mock_current, mock_path, mock_available, caplog
+        self,
+        mock_compare,
+        mock_latest,
+        mock_current,
+        mock_path,
+        mock_available,
+        mock_should_check,
+        caplog,
     ):
         """Test check_and_update_ytdlp logs when already up to date."""
         caplog.set_level("INFO")
 
+        mock_should_check.return_value = True  # Allow update check
         mock_available.return_value = True
         mock_path.return_value = Path("/tmp/yt-dlp")
         mock_current.return_value = "2024.01.04"
@@ -1334,6 +1435,7 @@ class TestToolManagerLogging:
             for msg in info_messages
         )
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
     @patch.object(ToolManager, "get_tool_version")
@@ -1348,6 +1450,7 @@ class TestToolManagerLogging:
         mock_current,
         mock_path,
         mock_available,
+        mock_should_check,
         caplog,
         tmp_path,
     ):
@@ -1358,6 +1461,7 @@ class TestToolManagerLogging:
         current_path = tmp_path / "yt-dlp"
         current_path.write_text("old version")
 
+        mock_should_check.return_value = True  # Allow update check
         mock_available.return_value = True
         mock_path.return_value = current_path
         mock_current.side_effect = [
@@ -1392,6 +1496,7 @@ class TestToolManagerLogging:
             for msg in info_messages
         )
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
     @patch.object(ToolManager, "get_tool_version")
@@ -1406,6 +1511,7 @@ class TestToolManagerLogging:
         mock_current,
         mock_path,
         mock_available,
+        mock_should_check,
         caplog,
         tmp_path,
     ):
@@ -1418,6 +1524,7 @@ class TestToolManagerLogging:
         current_path.write_text("old version")
         backup_path.write_text("backup version")
 
+        mock_should_check.return_value = True  # Allow update check
         mock_available.return_value = True
         mock_path.return_value = current_path
         mock_current.return_value = "2023.12.30"

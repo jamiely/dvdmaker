@@ -11,6 +11,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -71,6 +72,7 @@ class ToolManager(BaseService):
         self.progress_callback = progress_callback
         self.bin_dir = settings.bin_dir
         self.tool_versions_file = self.bin_dir / "tool_versions.json"
+        self.ytdlp_update_check_file = self.bin_dir / "ytdlp_last_check.json"
 
         # Cache for tool status to avoid repeated expensive validation calls
         self._tools_status_cache: Optional[Dict[str, Dict[str, Any]]] = None
@@ -903,15 +905,65 @@ class ToolManager(BaseService):
             )
             return False
 
+    def _should_check_ytdlp_update(self) -> bool:
+        """Check if enough time has passed since last yt-dlp update check.
+
+        Returns:
+            True if update check should be performed, False otherwise
+        """
+        if not self.ytdlp_update_check_file.exists():
+            self.logger.debug("No previous yt-dlp update check record found")
+            return True
+
+        try:
+            with open(self.ytdlp_update_check_file, "r") as f:
+                data = json.load(f)
+
+            last_check_time = data.get("last_check_timestamp", 0)
+            current_time = time.time()
+            hours_since_last_check = (current_time - last_check_time) / 3600
+
+            should_check: bool = hours_since_last_check >= 24
+            self.logger.debug(
+                f"yt-dlp last checked {hours_since_last_check:.1f} hours ago, "
+                f"should check: {should_check}"
+            )
+
+            return should_check
+
+        except (json.JSONDecodeError, IOError, KeyError) as e:
+            self.logger.warning(f"Failed to read yt-dlp update check file: {e}")
+            return True  # If we can't read the file, allow the check
+
+    def _record_ytdlp_check(self) -> None:
+        """Record the current time as the last yt-dlp update check time."""
+        try:
+            data = {"last_check_timestamp": time.time()}
+            with open(self.ytdlp_update_check_file, "w") as f:
+                json.dump(data, f, indent=2)
+            self.logger.debug("Recorded yt-dlp update check timestamp")
+        except IOError as e:
+            self.logger.warning(f"Failed to record yt-dlp update check time: {e}")
+
     def check_and_update_ytdlp(self) -> bool:
         """Check for yt-dlp updates and update if a newer version is available.
 
         Returns:
             True if yt-dlp was updated or is already current, False if update failed
         """
+        # Check if enough time has passed since last update check
+        if not self._should_check_ytdlp_update():
+            self.logger.info(
+                "Skipping yt-dlp update check (checked within last 24 hours)"
+            )
+            return True  # Return True since we assume the tool is functional
+
         self.logger.info("Checking for yt-dlp updates...")
 
         try:
+            # Record that we're performing an update check
+            self._record_ytdlp_check()
+
             # Check if yt-dlp is available locally and get its version
             if self.is_tool_available_locally("yt-dlp"):
                 local_path = self.get_tool_path("yt-dlp")

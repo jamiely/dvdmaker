@@ -97,11 +97,12 @@ class Settings(BaseSettings):
     video_format: str = Field(default="NTSC")
     aspect_ratio: str = Field(default="16:9")
     car_dvd_compatibility: bool = Field(default=True)
-    autoplay: bool = Field(default=False)
+    autoplay: bool = Field(default=True)
 
     # Cache settings
     force_download: bool = Field(default=False)
     force_convert: bool = Field(default=False)
+    refresh_playlist: bool = Field(default=False)
 
     # Console output settings
     verbose: bool = Field(default=False)

@@ -23,6 +23,8 @@ def mock_settings():
     settings.temp_dir = Path("/test/temp")
     settings.download_rate_limit = "1M"
     settings.video_quality = "best"
+    settings.force_download = False
+    settings.refresh_playlist = False
     return settings
 
 
@@ -233,14 +235,15 @@ class TestVideoDownloader:
         # Mock cached metadata not found
         downloader.cache_manager.get_cached_playlist_metadata.return_value = None
 
-        # Mock yt-dlp output
+        # Mock yt-dlp output (actual format: video entries with playlist metadata)
         mock_result = Mock()
-        playlist_json = {
-            "title": sample_playlist_metadata.title,
-            "description": sample_playlist_metadata.description,
+        video_json = {
+            "id": "video1",
+            "title": "Video 1",
+            "playlist_title": sample_playlist_metadata.title,
+            "playlist_description": sample_playlist_metadata.description,
         }
-        video_json = {"id": "video1", "title": "Video 1"}
-        raw_json_output = f"{json.dumps(playlist_json)}\n{json.dumps(video_json)}"
+        raw_json_output = json.dumps(video_json)
         mock_result.stdout = raw_json_output
         mock_run.return_value = mock_result
 
@@ -250,7 +253,7 @@ class TestVideoDownloader:
         assert result.playlist_id == "test_playlist_id"
         assert result.title == sample_playlist_metadata.title
         assert result.description == sample_playlist_metadata.description
-        assert result.video_count == 1  # One video line
+        assert result.video_count == 1  # One video entry
         downloader.cache_manager.store_playlist_metadata.assert_called_once()
         # Verify raw JSON was cached
         downloader.cache_manager.store_playlist_raw_json.assert_called_once_with(
@@ -279,9 +282,8 @@ class TestVideoDownloader:
         # Mock no cached raw JSON
         downloader.cache_manager.get_cached_playlist_raw_json.return_value = None
 
-        # Mock yt-dlp output
+        # Mock yt-dlp output (all lines are video entries)
         mock_result = Mock()
-        playlist_json = {"title": "Test Playlist"}
         video1_json = {
             "id": "video1",
             "title": "Video 1",
@@ -296,11 +298,7 @@ class TestVideoDownloader:
             "duration": 200,
             "url": "https://youtube.com/watch?v=video2",
         }
-        raw_json_output = (
-            f"{json.dumps(playlist_json)}\n"
-            f"{json.dumps(video1_json)}\n"
-            f"{json.dumps(video2_json)}"
-        )
+        raw_json_output = f"{json.dumps(video1_json)}\n" f"{json.dumps(video2_json)}"
         mock_result.stdout = raw_json_output
         mock_run.return_value = mock_result
 
@@ -322,9 +320,8 @@ class TestVideoDownloader:
     @patch.object(VideoDownloader, "_run_yt_dlp")
     def test_extract_playlist_videos_cached_raw_json(self, mock_run, downloader):
         """Test playlist video extraction using cached raw JSON."""
-        # Mock cached raw JSON found
+        # Mock cached raw JSON found (all lines are video entries)
         cached_raw_json = (
-            '{"title": "Cached Playlist"}\n'
             '{"id": "cached_video1", "title": "Cached Video 1", "duration": 150, '
             '"url": "https://youtube.com/watch?v=cached_video1"}\n'
             '{"id": "cached_video2", "title": "Cached Video 2", "duration": 250, '
@@ -358,10 +355,9 @@ class TestVideoDownloader:
         # Mock no cached raw JSON
         downloader.cache_manager.get_cached_playlist_raw_json.return_value = None
 
-        # Mock yt-dlp output with only playlist metadata
+        # Mock yt-dlp output with empty result
         mock_result = Mock()
-        playlist_json = {"title": "Empty Playlist"}
-        mock_result.stdout = json.dumps(playlist_json)
+        mock_result.stdout = ""
         mock_run.return_value = mock_result
 
         url = "https://www.youtube.com/playlist?list=empty_playlist"
@@ -588,16 +584,18 @@ class TestRawJsonCachingIntegration:
         # Mock no cached metadata
         downloader.cache_manager.get_cached_playlist_metadata.return_value = None
 
-        # Mock yt-dlp output for metadata extraction (include required URL field)
+        # Mock yt-dlp output for metadata extraction (video entry with
+        # playlist metadata)
         mock_result = Mock()
-        playlist_json = {"title": "Integration Test Playlist", "description": "Test"}
         video_json = {
             "id": "integration_video",
             "title": "Integration Video",
             "url": "https://youtube.com/watch?v=integration_video",
             "duration": 120,
+            "playlist_title": "Integration Test Playlist",
+            "playlist_description": "Test",
         }
-        raw_json_output = f"{json.dumps(playlist_json)}\n{json.dumps(video_json)}"
+        raw_json_output = json.dumps(video_json)
         mock_result.stdout = raw_json_output
         mock_run.return_value = mock_result
 

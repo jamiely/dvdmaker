@@ -175,14 +175,26 @@ class VideoDownloader(BaseService):
             playlist_id = self._extract_playlist_id(playlist_url)
             self.logger.debug(f"Extracted playlist ID: {playlist_id}")
 
-            # Check cache first
-            cached_metadata = self.cache_manager.get_cached_playlist_metadata(
-                playlist_id
-            )
-            if cached_metadata:
-                self.logger.debug(f"Using cached playlist metadata for {playlist_id}")
-                tracker.complete("Used cached playlist metadata")
-                return cached_metadata
+            # Check cache first (unless force_download or refresh_playlist is enabled)
+            if not self.settings.force_download and not self.settings.refresh_playlist:
+                cached_metadata = self.cache_manager.get_cached_playlist_metadata(
+                    playlist_id
+                )
+                if cached_metadata:
+                    self.logger.debug(
+                        f"Using cached playlist metadata for {playlist_id}"
+                    )
+                    tracker.complete("Used cached playlist metadata")
+                    return cached_metadata
+            else:
+                bypass_reason = (
+                    "force_download"
+                    if self.settings.force_download
+                    else "refresh_playlist"
+                )
+                self.logger.debug(
+                    f"Bypassing playlist metadata cache due to {bypass_reason} setting"
+                )
 
             # Build yt-dlp command for playlist extraction
             args = self._get_base_yt_dlp_args() + [
@@ -197,19 +209,19 @@ class VideoDownloader(BaseService):
             raw_json_output = result.stdout.strip()
             self.cache_manager.store_playlist_raw_json(playlist_id, raw_json_output)
 
-            # Parse first line to get playlist metadata
+            # Parse first line to get playlist metadata from first video entry
             lines = raw_json_output.split("\n")
             if not lines:
                 raise YtDlpError("No output from yt-dlp playlist extraction")
 
-            # First line contains playlist metadata
-            playlist_data = json.loads(lines[0])
+            # First line contains video data with playlist metadata
+            first_video_data = json.loads(lines[0])
 
             metadata = PlaylistMetadata(
                 playlist_id=playlist_id,
-                title=playlist_data.get("title", f"Playlist {playlist_id}"),
-                description=playlist_data.get("description"),
-                video_count=len(lines) - 1,  # Subtract playlist line
+                title=first_video_data.get("playlist_title", f"Playlist {playlist_id}"),
+                description=first_video_data.get("playlist_description"),
+                video_count=len(lines),  # All lines are video entries
                 total_size_estimate=None,  # Will be calculated later
             )
 
@@ -253,20 +265,35 @@ class VideoDownloader(BaseService):
         try:
             playlist_id = self._extract_playlist_id(playlist_url)
 
-            # Check if we have cached raw JSON first
-            cached_raw_json = self.cache_manager.get_cached_playlist_raw_json(
-                playlist_id
-            )
-            if cached_raw_json:
-                cache_path = self.cache_manager.get_playlist_raw_json_cache_path(
+            # Check if we have cached raw JSON first (unless force_download or
+            # refresh_playlist is enabled)
+            if not self.settings.force_download and not self.settings.refresh_playlist:
+                cached_raw_json = self.cache_manager.get_cached_playlist_raw_json(
                     playlist_id
                 )
-                self.logger.debug(
-                    f"Using cached raw JSON for playlist {playlist_id} "
-                    f"from {cache_path}"
-                )
-                raw_json_output = cached_raw_json
+                if cached_raw_json:
+                    cache_path = self.cache_manager.get_playlist_raw_json_cache_path(
+                        playlist_id
+                    )
+                    self.logger.debug(
+                        f"Using cached raw JSON for playlist {playlist_id} "
+                        f"from {cache_path}"
+                    )
+                    raw_json_output = cached_raw_json
+                else:
+                    raw_json_output = None
             else:
+                bypass_reason = (
+                    "force_download"
+                    if self.settings.force_download
+                    else "refresh_playlist"
+                )
+                self.logger.debug(
+                    f"Bypassing playlist raw JSON cache due to {bypass_reason} setting"
+                )
+                raw_json_output = None
+
+            if raw_json_output is None:
                 # Build yt-dlp command for video extraction
                 args = self._get_base_yt_dlp_args() + [
                     "--flat-playlist",
@@ -281,20 +308,26 @@ class VideoDownloader(BaseService):
                 self.cache_manager.store_playlist_raw_json(playlist_id, raw_json_output)
 
             lines = raw_json_output.split("\n")
-            if len(lines) < 2:  # At least playlist + one video
+            # Filter out empty lines
+            lines = [line.strip() for line in lines if line.strip()]
+            if len(lines) < 1:  # At least one video
                 raise YtDlpError("Playlist appears to be empty or invalid")
 
             videos = []
-            # Skip first line (playlist metadata)
-            for i, line in enumerate(lines[1:], 1):
+            # Process all lines (all are video entries)
+            for i, line in enumerate(lines, 1):
                 try:
                     video_data = json.loads(line)
 
                     # Extract video metadata
+                    duration = video_data.get("duration")
+                    if duration is None:
+                        duration = 0
+
                     video = VideoMetadata(
                         video_id=video_data.get("id", ""),
                         title=video_data.get("title", f"Video {i}"),
-                        duration=video_data.get("duration", 0),
+                        duration=int(duration),
                         url=video_data.get("url", video_data.get("webpage_url", "")),
                         thumbnail_url=video_data.get("thumbnail"),
                         description=video_data.get("description"),
@@ -469,6 +502,14 @@ class VideoDownloader(BaseService):
             self.logger.error(f"Failed to download video {video.video_id}: {e}")
             playlist.update_video_status(video.video_id, VideoStatus.FAILED)
             tracker.error(f"Download failed: {str(e)}")
+
+            # Display error in red to console
+            from ..utils.console import print_error
+
+            print_error(
+                f"Failed to download '{video.title}' ({video.video_id}): {str(e)}",
+                "DOWNLOAD ERROR",
+            )
             return False
 
         except Exception as e:
@@ -477,6 +518,15 @@ class VideoDownloader(BaseService):
             )
             playlist.update_video_status(video.video_id, VideoStatus.FAILED)
             tracker.error(f"Download failed: {str(e)}")
+
+            # Display error in red to console
+            from ..utils.console import print_error
+
+            print_error(
+                f"Unexpected error downloading '{video.title}' "
+                f"({video.video_id}): {str(e)}",
+                "DOWNLOAD ERROR",
+            )
             return False
 
     def download_playlist(
