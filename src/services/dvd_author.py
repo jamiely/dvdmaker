@@ -663,7 +663,13 @@ class DVDAuthor(BaseService):
             for i in range(max_buttons):
                 chapter_num = i + 1
                 button_name = f"button{i+1:02d}"
-                button_text = f"g0=0;jump title 1 chapter {chapter_num};"
+                # Fix for autoplay: button01 jumps to "title 1" (like DVDStyler)
+                if (
+                    i == 0
+                ):  # First button (button01) - match DVDStyler's autoplay behavior
+                    button_text = "g0=0;jump title 1;"
+                else:
+                    button_text = f"g0=0;jump title 1 chapter {chapter_num};"
                 ET.SubElement(menu_pgc, "button", name=button_name).text = button_text
 
             # Add navigation buttons
