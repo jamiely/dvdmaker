@@ -319,6 +319,15 @@ class VideoDownloader(BaseService):
                 try:
                     video_data = json.loads(line)
 
+                    # Skip deleted/unavailable videos
+                    title = video_data.get("title", f"Video {i}")
+                    if title == "[Deleted video]" or title == "[Private video]":
+                        video_id = video_data.get("id", "unknown")
+                        self.logger.warning(
+                            f"Skipping unavailable video: {title} ({video_id})"
+                        )
+                        continue
+
                     # Extract video metadata
                     duration = video_data.get("duration")
                     if duration is None:
@@ -326,7 +335,7 @@ class VideoDownloader(BaseService):
 
                     video = VideoMetadata(
                         video_id=video_data.get("id", ""),
-                        title=video_data.get("title", f"Video {i}"),
+                        title=title,
                         duration=int(duration),
                         url=video_data.get("url", video_data.get("webpage_url", "")),
                         thumbnail_url=video_data.get("thumbnail"),

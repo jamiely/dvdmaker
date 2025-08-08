@@ -227,9 +227,11 @@ class ToolManager(BaseService):
         Returns:
             True if tool is available in system PATH
         """
-        # Special handling for dvdauthor since it's system-only
+        # Special handling for system-only tools
         if tool_name == "dvdauthor":
             available = shutil.which("dvdauthor") is not None
+        elif tool_name == "spumux":
+            available = shutil.which("spumux") is not None
         elif tool_name == "mkisofs":
             # Check for mkisofs or genisoimage (either can be used)
             available = (
@@ -265,6 +267,8 @@ class ToolManager(BaseService):
                 cmd = [str(tool_path) if tool_path else "yt-dlp", "--version"]
             elif tool_name == "dvdauthor":
                 cmd = ["dvdauthor", "--help"]
+            elif tool_name == "spumux":
+                cmd = ["spumux", "--help"]
             elif tool_name == "mkisofs":
                 cmd = ["mkisofs", "--version"]
             else:
@@ -298,20 +302,29 @@ class ToolManager(BaseService):
                     return False, None
 
             # Determine if tool is functional
-            if (
+            if result.returncode == 0:
+                # Normal successful execution
+                functional = True
+            elif (
                 tool_name == "dvdauthor"
                 and result.returncode == 1
                 and (result.stdout or result.stderr)
             ):
                 # dvdauthor --help returns exit code 1 but is still functional
                 functional = True
-            elif result.returncode != 0:
+            elif (
+                tool_name == "spumux"
+                and result.returncode == 255
+                and (result.stdout or result.stderr)
+            ):
+                # spumux --help returns exit code 255 but shows help, so it's functional
+                functional = True
+            else:
+                # Tool validation failed
                 self.logger.warning(
                     f"Tool {tool_name} validation failed: {result.stderr}"
                 )
                 return False, None
-            else:
-                functional = True
 
             # Extract version from output
             version = self._extract_version_from_output(
@@ -367,6 +380,22 @@ class ToolManager(BaseService):
                 if "dvdauthor" in line.lower() and "version" in line.lower():
                     # Extract version from line like
                     # "DVDAuthor::dvdauthor, version 0.7.2."
+                    parts = line.split("version")
+                    if len(parts) > 1:
+                        version = parts[1].strip().rstrip(".").split()[0]
+                        self.logger.debug(f"Extracted {tool_name} version: {version}")
+                        return version
+                    else:
+                        version = "system"
+                        self.logger.debug(f"Detected {tool_name} version: {version}")
+                        return version
+        elif tool_name == "spumux":
+            # spumux help output contains version info in stderr
+            output_to_check = stderr if stderr else output
+            for line in output_to_check.split("\n"):
+                if "spumux" in line.lower() and "version" in line.lower():
+                    # Extract version from line like
+                    # "DVDAuthor::spumux, version 0.7.2."
                     parts = line.split("version")
                     if len(parts) > 1:
                         version = parts[1].strip().rstrip(".").split()[0]
@@ -641,7 +670,7 @@ class ToolManager(BaseService):
         tools_status = {}
 
         # Base required tools
-        required_tools = ["ffmpeg", "yt-dlp", "dvdauthor"]
+        required_tools = ["ffmpeg", "yt-dlp", "dvdauthor", "spumux"]
 
         # Add ISO creation tools if ISO generation is enabled
         if self.settings.generate_iso:
@@ -660,7 +689,7 @@ class ToolManager(BaseService):
             }
 
             # Check local availability (unless using system tools)
-            system_only_tools = ["dvdauthor", "mkisofs"]
+            system_only_tools = ["dvdauthor", "spumux", "mkisofs"]
             if (
                 not self.settings.use_system_tools
                 and tool_name not in system_only_tools
@@ -724,6 +753,16 @@ class ToolManager(BaseService):
                     instructions = get_dvdauthor_install_instructions()
                     missing_tools.append(f"{tool_name}: {instructions}")
                     self.logger.warning(f"dvdauthor not available: {instructions}")
+                elif tool_name == "spumux":
+                    # spumux is part of dvdauthor package
+                    instructions = get_dvdauthor_install_instructions()
+                    missing_tools.append(
+                        f"{tool_name}: Not available. spumux is part of the "
+                        f"dvdauthor package.\n  {instructions}"
+                    )
+                    self.logger.warning(
+                        "spumux not available - part of dvdauthor package"
+                    )
                 elif tool_name == "mkisofs":
                     # mkisofs is system-only, provide installation instructions
                     missing_tools.append(
@@ -772,6 +811,7 @@ class ToolManager(BaseService):
             for tool_name, status in tools_status.items():
                 if not status["functional"] and tool_name not in [
                     "dvdauthor",
+                    "spumux",
                     "mkisofs",
                 ]:
                     # Tool was attempted to be downloaded but still not functional

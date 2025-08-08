@@ -108,6 +108,13 @@ class Settings(BaseSettings):
     verbose: bool = Field(default=False)
     quiet: bool = Field(default=False)
 
+    # Button settings
+    button_enabled: bool = Field(default=True)
+    button_text: str = Field(default="PLAY")
+    button_position: tuple[int, int] = Field(default=(360, 400))
+    button_size: tuple[int, int] = Field(default=(120, 40))
+    button_color: str = Field(default="#FFFFFF")
+
     model_config = SettingsConfigDict(
         env_prefix="DVDMAKER_",
         case_sensitive=False,
@@ -193,6 +200,38 @@ class Settings(BaseSettings):
             raise ValueError("Cannot use both --quiet and --verbose flags")
         return v
 
+    @field_validator("button_color")
+    @classmethod
+    def validate_button_color(cls, v: str) -> str:
+        """Validate button color is a valid hex color."""
+        import re
+
+        if not re.match(r"^#[0-9A-Fa-f]{6}$", v):
+            raise ValueError("Button color must be a valid hex color (e.g., #FFFFFF)")
+        return v.upper()
+
+    @field_validator("button_position")
+    @classmethod
+    def validate_button_position(cls, v: tuple[int, int]) -> tuple[int, int]:
+        """Validate button position is within reasonable bounds."""
+        x, y = v
+        if x < 0 or y < 0:
+            raise ValueError("Button position coordinates must be non-negative")
+        if x > 720 or y > 576:  # DVD max resolution
+            raise ValueError("Button position must be within DVD resolution bounds")
+        return v
+
+    @field_validator("button_size")
+    @classmethod
+    def validate_button_size(cls, v: tuple[int, int]) -> tuple[int, int]:
+        """Validate button size is reasonable."""
+        width, height = v
+        if width <= 0 or height <= 0:
+            raise ValueError("Button size must be positive")
+        if width > 720 or height > 576:  # DVD max resolution
+            raise ValueError("Button size must be within DVD resolution bounds")
+        return v
+
     @model_validator(mode="after")
     def validate_cross_field_constraints(self) -> "Settings":
         """Comprehensive cross-field validation."""
@@ -209,6 +248,9 @@ class Settings(BaseSettings):
 
         # Validate DVD configuration
         self._validate_dvd_config(result)
+
+        # Validate button configuration
+        self._validate_button_config(result)
 
         # Validate performance/resource settings
         self._validate_resource_config(result)
@@ -330,6 +372,41 @@ class Settings(BaseSettings):
                 result.add_warning(
                     "Menu title contains non-ASCII characters - "
                     "will be normalized for DVD compatibility"
+                )
+
+    def _validate_button_config(self, result: ValidationResult) -> None:
+        """Validate button configuration."""
+        if self.button_enabled:
+            # Check button position makes sense for video format
+            x, y = self.button_position
+            width, height = self.button_size
+
+            # Get expected resolution based on video format
+            if self.video_format.upper() == "NTSC":
+                max_x, max_y = 720, 480
+            else:  # PAL
+                max_x, max_y = 720, 576
+
+            # Check if button fits within screen
+            if x - width // 2 < 0 or x + width // 2 > max_x:
+                result.add_warning(
+                    f"Button horizontal position may be off-screen for "
+                    f"{self.video_format}: x={x}, width={width}, "
+                    f"screen_width={max_x}"
+                )
+
+            if y - height // 2 < 0 or y + height // 2 > max_y:
+                result.add_warning(
+                    f"Button vertical position may be off-screen for "
+                    f"{self.video_format}: y={y}, height={height}, "
+                    f"screen_height={max_y}"
+                )
+
+            # Check button text length
+            if len(self.button_text) > 20:
+                result.add_warning(
+                    f"Button text is quite long ({len(self.button_text)} chars): "
+                    f"'{self.button_text}' - may not fit in button"
                 )
 
     def _validate_resource_config(self, result: ValidationResult) -> None:

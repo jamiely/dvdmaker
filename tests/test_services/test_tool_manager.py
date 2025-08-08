@@ -536,10 +536,11 @@ class TestToolManager:
 
         status = self.tool_manager.check_tools()
 
-        assert len(status) == 3
+        assert len(status) == 4  # ffmpeg, yt-dlp, dvdauthor, spumux
         assert "ffmpeg" in status
         assert "yt-dlp" in status
         assert "dvdauthor" in status
+        assert "spumux" in status
 
         for tool_status in status.values():
             assert "available_locally" in tool_status
@@ -572,10 +573,11 @@ class TestToolManager:
         status = self.tool_manager.check_tools()
 
         # Should include mkisofs when ISO generation is enabled
-        assert len(status) == 4
+        assert len(status) == 5  # ffmpeg, yt-dlp, dvdauthor, spumux, mkisofs
         assert "ffmpeg" in status
         assert "yt-dlp" in status
         assert "dvdauthor" in status
+        assert "spumux" in status
         assert "mkisofs" in status
 
     @patch.object(ToolManager, "check_tools")

@@ -19,6 +19,7 @@ from ..models.dvd import DVDChapter, DVDStructure
 from ..models.video import VideoFile, VideoMetadata
 from ..services.cache_manager import CacheManager
 from ..services.converter import ConvertedVideoFile
+from ..services.spumux_service import SpumuxService
 from ..services.tool_manager import ToolManager
 from ..utils.filename import normalize_to_ascii
 from ..utils.logging import get_logger
@@ -147,6 +148,7 @@ class DVDAuthor(BaseService):
         settings: Settings,
         tool_manager: ToolManager,
         cache_manager: CacheManager,
+        spumux_service: Optional[SpumuxService] = None,
         progress_callback: Optional[ProgressCallback] = None,
     ):
         """Initialize the DVD author.
@@ -155,11 +157,13 @@ class DVDAuthor(BaseService):
             settings: Application settings
             tool_manager: Tool manager for dvdauthor access
             cache_manager: Cache manager for caching operations
+            spumux_service: Optional spumux service for button overlays
             progress_callback: Optional callback for progress reporting
         """
         super().__init__(settings)
         self.tool_manager = tool_manager
         self.cache_manager = cache_manager
+        self.spumux_service = spumux_service
         self.progress_callback = progress_callback
 
     def _create_playlist_output_dir(
@@ -289,6 +293,9 @@ class DVDAuthor(BaseService):
             # Create DVD authoring XML
             self._report_progress("Creating DVD authoring configuration", 0.2)
             dvd_xml = self._create_dvd_xml(dvd_structure, video_ts_dir)
+
+            # Skip button overlays since we're not using menu videos
+            self._report_progress("Skipping button overlays (no menu videos)", 0.3)
 
             # Run dvdauthor
             self._report_progress("Running dvdauthor", 0.4)
@@ -499,6 +506,61 @@ class DVDAuthor(BaseService):
         except Exception as e:
             self.logger.error(f"Failed to create fallback menu video: {e}")
 
+    def _create_button_overlays(self, playlist_output_dir: Path) -> None:
+        """Create button overlays for menu videos using spumux service.
+
+        Args:
+            playlist_output_dir: Playlist output directory containing menu videos
+        """
+        if not self.spumux_service:
+            self.logger.debug("No spumux service available - skipping button overlays")
+            return
+
+        if not self.spumux_service.is_available():
+            self.logger.warning(
+                "Spumux service not available - skipping button overlays"
+            )
+            return
+
+        temp_dir = playlist_output_dir / "temp_menus"
+        if not temp_dir.exists():
+            self.logger.debug(
+                "No temporary menu directory found - skipping button overlays"
+            )
+            return
+
+        # Find menu video files
+        menu_files = list(temp_dir.glob("menu*.mpg"))
+        if not menu_files:
+            self.logger.debug("No menu video files found - skipping button overlays")
+            return
+
+        self.logger.info(
+            f"Creating button overlays for {len(menu_files)} menu video(s)"
+        )
+
+        # Create button overlays for each menu video
+        for menu_file in menu_files:
+            try:
+                self.logger.debug(f"Creating button overlay for: {menu_file.name}")
+                overlay = self.spumux_service.create_button_overlay(
+                    menu_file, playlist_output_dir
+                )
+
+                if overlay:
+                    self.logger.debug(
+                        f"Button overlay created successfully for {menu_file.name}: "
+                        f"button='{overlay.button_config.text}'"
+                    )
+                else:
+                    self.logger.debug(f"No button overlay created for {menu_file.name}")
+
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to create button overlay for {menu_file.name}: {e}"
+                )
+                # Continue with other menus - don't fail entire DVD creation
+
     def _cleanup_temp_menu_files(self, playlist_output_dir: Path) -> None:
         """Clean up temporary menu files after DVD creation."""
         temp_dir = playlist_output_dir / "temp_menus"
@@ -583,25 +645,17 @@ class DVDAuthor(BaseService):
 
         pgc = ET.SubElement(menus, "pgc", entry="title")
 
-        # Create VMGM menu video (like DVDStyler's menu0-0.mpg)
+        # Create VMGM menu without video (autoplay functionality)
         if ordered_chapters:
-            vmgm_menu_file = temp_dir / "menu0-0.mpg"
-            self._create_menu_video(
-                ordered_chapters[0].video_file.file_path,
-                vmgm_menu_file,
-                aspect_ratio=vmgm_aspect,
-            )
-
-            # Add buttons and menu video reference like DVDStyler
+            # Add buttons for navigation (no video required)
             ET.SubElement(pgc, "button", name="button01").text = "g0=1;jump title 1;"
             if len(ordered_chapters) > 1:
                 ET.SubElement(pgc, "button", name="button02").text = (
                     "g0=0;jump titleset 1 menu;"
                 )
 
-            # Add menu video (jumppad attribute controls autoplay behavior)
-            ET.SubElement(pgc, "vob", file=str(vmgm_menu_file), pause="inf")
-            ET.SubElement(pgc, "pre").text = "g1=101;"
+            # Auto-jump to first title without menu video
+            ET.SubElement(pgc, "pre").text = "g1=101;jump title 1;"
         else:
             # Fallback to simple jump if no chapters
             ET.SubElement(pgc, "pre").text = "jump title 1;"
@@ -644,21 +698,7 @@ class DVDAuthor(BaseService):
 
             menu_pgc = ET.SubElement(titleset_menus, "pgc", entry="ptt,root")
 
-            # Create titleset menu video (like DVDStyler's menu1-0.mpg)
-            titleset_menu_file = temp_dir / "menu1-0.mpg"
-            # Use second video or first if only one
-            menu_source = (
-                ordered_chapters[1]
-                if len(ordered_chapters) > 1
-                else ordered_chapters[0]
-            )
-            self._create_menu_video(
-                menu_source.video_file.file_path,
-                titleset_menu_file,
-                aspect_ratio=self.settings.aspect_ratio,
-            )
-
-            # Create chapter navigation buttons (limit to 6 like DVDStyler's first menu)
+            # Create chapter navigation buttons without menu video (limit to 6 like DVDStyler's first menu)
             max_buttons = min(len(ordered_chapters), 6)
             for i in range(max_buttons):
                 chapter_num = i + 1
@@ -677,11 +717,8 @@ class DVDAuthor(BaseService):
                 "g0=0;jump vmgm menu 1;"
             )
 
-            # Add menu video and DVDStyler-style pre command
-            ET.SubElement(menu_pgc, "vob", file=str(titleset_menu_file), pause="inf")
-            pre_text = (
-                "if (g1 & 0x8000 !=0) {g1^=0x8000;if (g1==101) jump vmgm menu 1;}g1=1;"
-            )
+            # Auto-jump to first title without menu video
+            pre_text = "if (g1 & 0x8000 !=0) {g1^=0x8000;if (g1==101) jump vmgm menu 1;}g1=1;jump title 1;"
             ET.SubElement(menu_pgc, "pre").text = pre_text
 
         # Create titles section
@@ -732,11 +769,11 @@ class DVDAuthor(BaseService):
             f.write(pretty_xml)
 
         self.logger.debug(
-            f"Created DVDStyler-inspired dvdauthor XML with menu videos: {xml_file}"
+            f"Created DVDStyler-inspired dvdauthor XML with autoplay navigation: {xml_file}"
         )
         if len(ordered_chapters) > 1:
             self.logger.info(
-                f"Generated menu videos for {len(ordered_chapters)} chapter navigation"
+                f"Generated autoplay navigation for {len(ordered_chapters)} chapters"
             )
 
         return xml_file

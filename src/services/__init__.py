@@ -11,6 +11,15 @@ from .dvd_author import (
     DVDCapacityExceededError,
     DVDStructureCreationError,
 )
+from .spumux_service import (
+    ButtonConfig,
+    ButtonGraphicError,
+    ButtonOverlay,
+    SpumuxError,
+    SpumuxNotAvailableError,
+    SpumuxService,
+    SubtitleFiles,
+)
 from .tool_manager import (
     ToolDownloadError,
     ToolManager,
@@ -36,6 +45,14 @@ __all__ = [
     "DVDAuthoringError",
     "DVDCapacityExceededError",
     "DVDStructureCreationError",
+    # Spumux Service
+    "SpumuxService",
+    "SpumuxError",
+    "SpumuxNotAvailableError",
+    "ButtonGraphicError",
+    "ButtonConfig",
+    "ButtonOverlay",
+    "SubtitleFiles",
     # Tool Manager
     "ToolManager",
     "ToolManagerError",

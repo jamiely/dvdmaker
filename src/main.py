@@ -18,6 +18,7 @@ from .services.cleanup import CleanupManager
 from .services.converter import VideoConverter, VideoConverterError
 from .services.downloader import VideoDownloader, YtDlpError
 from .services.dvd_author import DVDAuthor, DVDAuthorError
+from .services.spumux_service import SpumuxService
 from .services.tool_manager import ToolManager, ToolManagerError
 from .utils.capacity import log_excluded_videos, select_videos_for_dvd_capacity
 from .utils.logging import get_logger, operation_context, setup_logging
@@ -501,10 +502,17 @@ def main() -> int:
                 progress_callback=progress_callback,
             )
 
+            spumux_service = SpumuxService(
+                settings=settings,
+                tool_manager=tool_manager,
+                cache_manager=cache_manager,
+            )
+
             dvd_author = DVDAuthor(
                 settings=settings,
                 tool_manager=tool_manager,
                 cache_manager=cache_manager,
+                spumux_service=spumux_service,
                 progress_callback=progress_callback,
             )
 
