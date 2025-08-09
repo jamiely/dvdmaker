@@ -1014,15 +1014,14 @@ class TestYtDlpUpdateFunctionality:
         assert result is False
 
     @patch.object(ToolManager, "_should_check_ytdlp_update")
-    @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
+    @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "download_tool")
-    def test_check_and_update_ytdlp_no_current_version(
-        self, mock_download, mock_latest, mock_current, mock_should_check
+    def test_check_and_update_ytdlp_no_tool_available(
+        self, mock_download, mock_available, mock_should_check
     ):
-        """Test yt-dlp update when no current version exists."""
+        """Test yt-dlp update when tool is not available locally."""
         mock_should_check.return_value = True  # Allow update check
-        mock_current.return_value = None
+        mock_available.return_value = False  # Tool not available
         mock_download.return_value = True
 
         result = self.tool_manager.check_and_update_ytdlp()
@@ -1030,121 +1029,127 @@ class TestYtDlpUpdateFunctionality:
         assert result is True
         mock_download.assert_called_once_with("yt-dlp")
 
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
+    @patch.object(ToolManager, "is_tool_available_locally")  
+    @patch.object(ToolManager, "get_tool_path")
     @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
-    def test_check_and_update_ytdlp_no_latest_version(self, mock_latest, mock_current):
-        """Test yt-dlp update when latest version cannot be determined."""
-        mock_current.return_value = "2024.01.04"
-        mock_latest.return_value = None
-
-        result = self.tool_manager.check_and_update_ytdlp()
-
-        assert result is True  # Should not fail if can't check for updates
-
-    @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
-    @patch.object(ToolManager, "compare_versions")
-    def test_check_and_update_ytdlp_already_current(
-        self, mock_compare, mock_latest, mock_current
+    @patch("subprocess.run")
+    def test_check_and_update_ytdlp_already_up_to_date(
+        self, mock_subprocess, mock_get_version, mock_get_path, mock_available, mock_should_check, tmp_path
     ):
-        """Test yt-dlp update when current version is already latest."""
-        mock_current.return_value = "2024.01.04"
-        mock_latest.return_value = "2024.01.04"
-        mock_compare.return_value = False  # No update needed
+        """Test yt-dlp update when tool is already up-to-date."""
+        # Setup
+        mock_should_check.return_value = True
+        mock_available.return_value = True
+        ytdlp_path = tmp_path / "yt-dlp"
+        mock_get_path.return_value = ytdlp_path
+        mock_get_version.return_value = "2024.01.04"
+        
+        # Mock yt-dlp -U output for already up-to-date
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "yt-dlp is already up-to-date"
+        mock_subprocess.return_value = mock_result
 
         result = self.tool_manager.check_and_update_ytdlp()
 
         assert result is True
+        mock_subprocess.assert_called_once_with(
+            [str(ytdlp_path), "-U"], capture_output=True, text=True, timeout=120
+        )
 
     @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "is_tool_available_locally")
-    @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
-    @patch.object(ToolManager, "compare_versions")
     @patch.object(ToolManager, "get_tool_path")
-    @patch.object(ToolManager, "download_tool")
-    @patch("src.services.tool_manager.shutil.copy2")
+    @patch.object(ToolManager, "get_tool_version")
+    @patch("subprocess.run")
     def test_check_and_update_ytdlp_successful_update(
-        self,
-        mock_copy,
-        mock_download,
-        mock_path,
-        mock_compare,
-        mock_latest,
-        mock_current,
-        mock_available,
-        mock_should_check,
-        tmp_path,
+        self, mock_subprocess, mock_get_version, mock_get_path, mock_available, mock_should_check, tmp_path
     ):
         """Test successful yt-dlp update."""
-        # Setup mocks
-        current_path = tmp_path / "yt-dlp"
-        current_path.write_text("fake binary")
-
-        mock_should_check.return_value = True  # Allow update check
-        mock_available.return_value = True  # Tool is available locally
-        mock_current.side_effect = [
-            "2023.12.30",
-            "2024.01.04",
-        ]  # Before and after update
-        mock_latest.return_value = "2024.01.04"
-        mock_compare.return_value = True  # Update needed
-        mock_path.return_value = current_path
-        mock_download.return_value = True
+        # Setup
+        mock_should_check.return_value = True
+        mock_available.return_value = True
+        ytdlp_path = tmp_path / "yt-dlp"
+        mock_get_path.return_value = ytdlp_path
+        mock_get_version.side_effect = ["2023.12.30", "2024.01.04"]  # Before and after
+        
+        # Mock yt-dlp -U output for successful update  
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "downloading latest version..."
+        mock_subprocess.return_value = mock_result
 
         result = self.tool_manager.check_and_update_ytdlp()
 
         assert result is True
-        mock_download.assert_called_once_with("yt-dlp")
-        mock_copy.assert_called_once()  # Backup created
+        mock_subprocess.assert_called_once_with(
+            [str(ytdlp_path), "-U"], capture_output=True, text=True, timeout=120
+        )
 
     @patch.object(ToolManager, "_should_check_ytdlp_update")
-    @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
-    @patch.object(ToolManager, "compare_versions")
+    @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
-    @patch.object(ToolManager, "download_tool")
-    @patch("src.services.tool_manager.shutil.copy2")
-    def test_check_and_update_ytdlp_download_failure(
-        self,
-        mock_copy,
-        mock_download,
-        mock_path,
-        mock_compare,
-        mock_latest,
-        mock_current,
-        mock_should_check,
-        tmp_path,
+    @patch.object(ToolManager, "get_tool_version")
+    @patch("subprocess.run")
+    def test_check_and_update_ytdlp_update_failure(
+        self, mock_subprocess, mock_get_version, mock_get_path, mock_available, mock_should_check, tmp_path
     ):
-        """Test yt-dlp update when download fails."""
-        # Setup mocks
-        current_path = tmp_path / "yt-dlp"
-        current_path.write_text("fake binary")
-        backup_path = current_path.with_suffix(".backup-2023.12.30")
+        """Test yt-dlp update when subprocess fails."""
+        # Setup
+        mock_should_check.return_value = True
+        mock_available.return_value = True
+        ytdlp_path = tmp_path / "yt-dlp"
+        mock_get_path.return_value = ytdlp_path
+        mock_get_version.return_value = "2023.12.30"
+        
+        # Mock yt-dlp -U failure
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "Update failed"
+        mock_subprocess.return_value = mock_result
 
-        mock_should_check.return_value = True  # Allow update check
-        mock_current.return_value = "2023.12.30"
-        mock_latest.return_value = "2024.01.04"
-        mock_compare.return_value = True  # Update needed
-        mock_path.return_value = current_path
-        mock_download.return_value = False  # Download fails
+        result = self.tool_manager.check_and_update_ytdlp()
 
-        # Create backup file to test restoration
-        backup_path.write_text("backup binary")
+        assert result is True  # Should not fail completely - tool might still work
+        mock_subprocess.assert_called_once_with(
+            [str(ytdlp_path), "-U"], capture_output=True, text=True, timeout=120
+        )
+
+    @patch.object(ToolManager, "_should_check_ytdlp_update")
+    @patch.object(ToolManager, "is_tool_available_locally")
+    @patch.object(ToolManager, "get_tool_path")
+    @patch.object(ToolManager, "get_tool_version")
+    @patch("subprocess.run")
+    def test_check_and_update_ytdlp_timeout(
+        self, mock_subprocess, mock_get_version, mock_get_path, mock_available, mock_should_check, tmp_path
+    ):
+        """Test yt-dlp update when subprocess times out."""
+        # Setup
+        mock_should_check.return_value = True
+        mock_available.return_value = True
+        ytdlp_path = tmp_path / "yt-dlp"
+        mock_get_path.return_value = ytdlp_path
+        mock_get_version.return_value = "2023.12.30"
+        
+        # Mock timeout
+        mock_subprocess.side_effect = subprocess.TimeoutExpired([str(ytdlp_path), "-U"], 120)
 
         result = self.tool_manager.check_and_update_ytdlp()
 
         assert result is False
-        mock_download.assert_called_once_with("yt-dlp")
+        mock_subprocess.assert_called_once_with(
+            [str(ytdlp_path), "-U"], capture_output=True, text=True, timeout=120
+        )
 
     @patch.object(ToolManager, "_should_check_ytdlp_update")
-    @patch.object(ToolManager, "get_tool_version")
+    @patch.object(ToolManager, "is_tool_available_locally")
     def test_check_and_update_ytdlp_exception_handling(
-        self, mock_current, mock_should_check
+        self, mock_available, mock_should_check
     ):
         """Test yt-dlp update exception handling."""
         mock_should_check.return_value = True  # Allow update check
-        mock_current.side_effect = Exception("Unexpected error")
+        mock_available.side_effect = Exception("Unexpected error")
 
         result = self.tool_manager.check_and_update_ytdlp()
 
@@ -1356,25 +1361,18 @@ class TestToolManagerLogging:
 
     @patch.object(ToolManager, "_should_check_ytdlp_update")
     @patch.object(ToolManager, "is_tool_available_locally")
-    @patch.object(ToolManager, "get_tool_path")
-    @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
-    def test_check_and_update_ytdlp_logging_info_messages(
+    def test_check_and_update_ytdlp_logging_tool_not_found(
         self,
-        mock_latest,
-        mock_current,
-        mock_path,
         mock_available,
         mock_should_check,
         caplog,
     ):
-        """Test check_and_update_ytdlp logs all info messages."""
+        """Test check_and_update_ytdlp logs when tool not found locally."""
         caplog.set_level("INFO")
 
         # Test scenario: yt-dlp not found locally
         mock_should_check.return_value = True  # Allow update check
         mock_available.return_value = False
-        mock_current.return_value = None
 
         with patch.object(self.tool_manager, "download_tool") as mock_download:
             mock_download.return_value = True
@@ -1389,7 +1387,6 @@ class TestToolManagerLogging:
             for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
-        assert any("Checking for yt-dlp updates..." in msg for msg in info_messages)
         assert any(
             "yt-dlp not found locally, will download latest version" in msg
             for msg in info_messages
@@ -1399,27 +1396,31 @@ class TestToolManagerLogging:
     @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
     @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
-    @patch.object(ToolManager, "compare_versions")
+    @patch("subprocess.run")
     def test_check_and_update_ytdlp_up_to_date_logging(
         self,
-        mock_compare,
-        mock_latest,
-        mock_current,
+        mock_subprocess,
+        mock_get_version,
         mock_path,
         mock_available,
         mock_should_check,
         caplog,
+        tmp_path,
     ):
         """Test check_and_update_ytdlp logs when already up to date."""
         caplog.set_level("INFO")
 
         mock_should_check.return_value = True  # Allow update check
         mock_available.return_value = True
-        mock_path.return_value = Path("/tmp/yt-dlp")
-        mock_current.return_value = "2024.01.04"
-        mock_latest.return_value = "2024.01.04"
-        mock_compare.return_value = False  # No update needed
+        ytdlp_path = tmp_path / "yt-dlp"
+        mock_path.return_value = ytdlp_path
+        mock_get_version.return_value = "2024.01.04"
+
+        # Mock yt-dlp -U output for already up-to-date
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "yt-dlp is already up-to-date"
+        mock_subprocess.return_value = mock_result
 
         result = self.tool_manager.check_and_update_ytdlp()
 
@@ -1431,125 +1432,9 @@ class TestToolManagerLogging:
             for record in caplog.records
             if record.levelname == "INFO" and "src.services.tool_manager" in record.name
         ]
-        assert any("Checking for yt-dlp updates..." in msg for msg in info_messages)
         assert any(
-            "yt-dlp is already up to date (current: 2024.01.04)" in msg
+            "yt-dlp is already up to date (version: 2024.01.04)" in msg
             for msg in info_messages
         )
 
-    @patch.object(ToolManager, "_should_check_ytdlp_update")
-    @patch.object(ToolManager, "is_tool_available_locally")
-    @patch.object(ToolManager, "get_tool_path")
-    @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
-    @patch.object(ToolManager, "compare_versions")
-    @patch.object(ToolManager, "download_tool")
-    def test_check_and_update_ytdlp_successful_update_logging(
-        self,
-        mock_download,
-        mock_compare,
-        mock_latest,
-        mock_current,
-        mock_path,
-        mock_available,
-        mock_should_check,
-        caplog,
-        tmp_path,
-    ):
-        """Test check_and_update_ytdlp logs successful update messages."""
-        caplog.set_level("INFO")
-
-        # Setup mocks for successful update scenario
-        current_path = tmp_path / "yt-dlp"
-        current_path.write_text("old version")
-
-        mock_should_check.return_value = True  # Allow update check
-        mock_available.return_value = True
-        mock_path.return_value = current_path
-        mock_current.side_effect = [
-            "2023.12.30",
-            "2024.01.04",
-        ]  # Before and after update
-        mock_latest.return_value = "2024.01.04"
-        mock_compare.return_value = True  # Update needed
-        mock_download.return_value = True
-
-        result = self.tool_manager.check_and_update_ytdlp()
-
-        assert result is True
-
-        # Check for info log messages
-        info_messages = [
-            record.message
-            for record in caplog.records
-            if record.levelname == "INFO" and "src.services.tool_manager" in record.name
-        ]
-        assert any("Checking for yt-dlp updates..." in msg for msg in info_messages)
-        assert any(
-            "yt-dlp update available: 2023.12.30 -> 2024.01.04" in msg
-            for msg in info_messages
-        )
-        assert any(
-            "Successfully updated yt-dlp from 2023.12.30 to 2024.01.04" in msg
-            for msg in info_messages
-        )
-        assert any(
-            "yt-dlp update verified (new version: 2024.01.04)" in msg
-            for msg in info_messages
-        )
-
-    @patch.object(ToolManager, "_should_check_ytdlp_update")
-    @patch.object(ToolManager, "is_tool_available_locally")
-    @patch.object(ToolManager, "get_tool_path")
-    @patch.object(ToolManager, "get_tool_version")
-    @patch.object(ToolManager, "get_latest_ytdlp_version")
-    @patch.object(ToolManager, "compare_versions")
-    @patch.object(ToolManager, "download_tool")
-    def test_check_and_update_ytdlp_failed_update_with_restore_logging(
-        self,
-        mock_download,
-        mock_compare,
-        mock_latest,
-        mock_current,
-        mock_path,
-        mock_available,
-        mock_should_check,
-        caplog,
-        tmp_path,
-    ):
-        """Test check_and_update_ytdlp logs restore message when update fails."""
-        caplog.set_level("INFO")
-
-        # Setup files for backup/restore scenario
-        current_path = tmp_path / "yt-dlp"
-        backup_path = current_path.with_suffix(".backup-2023.12.30")
-        current_path.write_text("old version")
-        backup_path.write_text("backup version")
-
-        mock_should_check.return_value = True  # Allow update check
-        mock_available.return_value = True
-        mock_path.return_value = current_path
-        mock_current.return_value = "2023.12.30"
-        mock_latest.return_value = "2024.01.04"
-        mock_compare.return_value = True  # Update needed
-        mock_download.return_value = False  # Download fails
-
-        result = self.tool_manager.check_and_update_ytdlp()
-
-        assert result is False
-
-        # Check for info log messages
-        info_messages = [
-            record.message
-            for record in caplog.records
-            if record.levelname == "INFO" and "src.services.tool_manager" in record.name
-        ]
-        assert any("Checking for yt-dlp updates..." in msg for msg in info_messages)
-        assert any(
-            "yt-dlp update available: 2023.12.30 -> 2024.01.04" in msg
-            for msg in info_messages
-        )
-        assert any(
-            "Restored previous yt-dlp version after failed update" in msg
-            for msg in info_messages
-        )
+    # Additional logging tests for yt-dlp updates can be added here if needed
