@@ -698,7 +698,8 @@ class DVDAuthor(BaseService):
 
             menu_pgc = ET.SubElement(titleset_menus, "pgc", entry="ptt,root")
 
-            # Create chapter navigation buttons without menu video (limit to 6 like DVDStyler's first menu)
+            # Create chapter navigation buttons without menu video
+            # (limit to 6 like DVDStyler's first menu)
             max_buttons = min(len(ordered_chapters), 6)
             for i in range(max_buttons):
                 chapter_num = i + 1
@@ -718,7 +719,10 @@ class DVDAuthor(BaseService):
             )
 
             # Auto-jump to first title without menu video
-            pre_text = "if (g1 & 0x8000 !=0) {g1^=0x8000;if (g1==101) jump vmgm menu 1;}g1=1;jump title 1;"
+            pre_text = (
+                "if (g1 & 0x8000 !=0) {g1^=0x8000;if (g1==101) jump vmgm menu 1;}"
+                "g1=1;jump title 1;"
+            )
             ET.SubElement(menu_pgc, "pre").text = pre_text
 
         # Create titles section
@@ -769,7 +773,8 @@ class DVDAuthor(BaseService):
             f.write(pretty_xml)
 
         self.logger.debug(
-            f"Created DVDStyler-inspired dvdauthor XML with autoplay navigation: {xml_file}"
+            "Created DVDStyler-inspired dvdauthor XML with autoplay navigation: "
+            f"{xml_file}"
         )
         if len(ordered_chapters) > 1:
             self.logger.info(
@@ -918,13 +923,21 @@ class DVDAuthor(BaseService):
                 "  RHEL/CentOS: sudo yum install genisoimage"
             ) from e
 
+        # Create volume label (DVD title) - limit to 32 chars for compatibility
+        volume_label = clean_title[:32].upper()
+        if not volume_label:
+            volume_label = "DVD"
+
         cmd = mkisofs_cmd + [
             "-dvd-video",
+            "-V",
+            volume_label,  # Set volume label
             "-o",
             str(iso_file),
             str(video_ts_dir.parent),
         ]
 
+        self.logger.debug(f"Creating ISO with volume label: '{volume_label}'")
         self.logger.debug(f"Executing ISO creation command: {' '.join(cmd)}")
 
         try:

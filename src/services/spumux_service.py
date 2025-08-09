@@ -459,16 +459,14 @@ class SpumuxService(BaseService):
                 )
                 # Replace original menu video with processed version
                 processed_video.replace(menu_video)
-                self.logger.debug(
-                    f"Replaced original menu video with processed version"
-                )
+                self.logger.debug("Replaced original menu video with processed version")
             else:
                 self.logger.warning(
                     "spumux completed but no processed video was created"
                 )
 
-            # Return empty SubtitleFiles object (spumux doesn't create separate subtitle files)
-            # This is normal behavior - subtitle data is embedded in the video stream
+            # Return empty SubtitleFiles object (spumux doesn't create separate
+            # subtitle files) - subtitle data is embedded in the video stream
             subtitle_files = SubtitleFiles(None, None)
             return subtitle_files
 

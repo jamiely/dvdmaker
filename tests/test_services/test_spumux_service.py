@@ -323,11 +323,9 @@ class TestSpumuxService:
         menu_video = tmp_path / "menu.mpg"
         menu_video.touch()
 
-        # Create expected output files
-        sub_file = tmp_path / "menu.sub"
-        idx_file = tmp_path / "menu.idx"
-        sub_file.touch()
-        idx_file.touch()
+        # Create processed video file that spumux would create
+        processed_video = tmp_path / "menu_with_buttons.mpv"
+        processed_video.touch()
 
         subtitle_files = spumux_service._execute_spumux(xml_file, menu_video, tmp_path)
 
@@ -339,9 +337,10 @@ class TestSpumuxService:
         assert call_args[1]["check"] is True
         assert call_args[1]["cwd"] == tmp_path
 
-        # Check subtitle files
-        assert subtitle_files.sub_file == sub_file
-        assert subtitle_files.idx_file == idx_file
+        # Check that subtitle files are None (spumux embeds data in video stream)
+        assert subtitle_files.sub_file is None
+        assert subtitle_files.idx_file is None
+        assert not subtitle_files.exists
 
     def test_execute_spumux_tool_not_available(self, spumux_service, tmp_path):
         """Test _execute_spumux when spumux tool is not available."""
