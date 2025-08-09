@@ -167,3 +167,17 @@ output/
 *.tmp
 .DS_Store
 .claude
+
+# DVDStyler source code (downloaded for reference)
+DVDStyler-*/
+
+# Development/test files
+logs/
+tmp/
+*.iso
+*.mpg
+*.xml
+dvdstyler/
+interlacedisc/
+lbdisc/
+PROBLEM_*.md
