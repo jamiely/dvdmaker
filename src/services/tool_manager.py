@@ -121,13 +121,18 @@ class ToolManager(BaseService):
                 self.logger.debug(f"Command stdout: {result.stdout.strip()}")
 
             if capture_output and result.stderr:
-                # Special case: dvdauthor --help returns exit code 1 but is successful
+                # Special cases: tools that write help/version info to stderr but are successful
                 is_dvdauthor_help = (
                     "dvdauthor" in cmd_str
                     and "--help" in cmd_str
                     and result.returncode == 1
                 )
-                if result.returncode == 0 or is_dvdauthor_help:
+                is_spumux_help = (
+                    "spumux" in cmd_str
+                    and "--help" in cmd_str
+                    and result.returncode == 255
+                )
+                if result.returncode == 0 or is_dvdauthor_help or is_spumux_help:
                     self.logger.debug(f"Command stderr: {result.stderr.strip()}")
                 else:
                     self.logger.warning(f"Command stderr: {result.stderr.strip()}")
