@@ -988,6 +988,8 @@ class ToolManager(BaseService):
     def check_and_update_ytdlp(self) -> bool:
         """Check for yt-dlp updates and update if a newer version is available.
 
+        Uses yt-dlp's built-in -U flag for self-updating.
+
         Returns:
             True if yt-dlp was updated or is already current, False if update failed
         """
@@ -998,102 +1000,64 @@ class ToolManager(BaseService):
             )
             return True  # Return True since we assume the tool is functional
 
-        self.logger.info("Checking for yt-dlp updates...")
-
         try:
             # Record that we're performing an update check
             self._record_ytdlp_check()
 
-            # Check if yt-dlp is available locally and get its version
-            if self.is_tool_available_locally("yt-dlp"):
-                local_path = self.get_tool_path("yt-dlp")
-                current_version = self.get_tool_version("yt-dlp", local_path)
-            else:
-                current_version = None
-
-            if not current_version:
+            # Check if yt-dlp is available
+            if not self.is_tool_available_locally("yt-dlp"):
                 self.logger.info(
                     "yt-dlp not found locally, will download latest version"
                 )
                 return self.download_tool("yt-dlp")
 
-            # Get latest version
-            latest_version = self.get_latest_ytdlp_version()
-            if not latest_version:
-                self.logger.warning(
-                    "Could not determine latest yt-dlp version, skipping update"
-                )
-                return True  # Don't fail if we can't check for updates
-
-            # Compare versions
-            if not self.compare_versions(current_version, latest_version):
-                self.logger.info(
-                    f"yt-dlp is already up to date (current: {current_version})"
-                )
-                return True
+            # Get current version for logging
+            current_path = self.get_tool_path("yt-dlp")
+            current_version = self.get_tool_version("yt-dlp", current_path)
 
             self.logger.info(
-                f"yt-dlp update available: {current_version} -> {latest_version}"
+                f"Checking for yt-dlp updates (current version: {current_version or 'unknown'})"
             )
 
-            # Back up current version
-            current_path = self.get_tool_path("yt-dlp")
-            backup_path = None
-            if current_path and current_path.exists():
-                backup_path = current_path.with_suffix(f".backup-{current_version}")
-                self.logger.debug(f"Backing up current yt-dlp to {backup_path}")
-                shutil.copy2(current_path, backup_path)
+            # Use yt-dlp's built-in update functionality
+            cmd = [str(current_path), "-U"]
+            
+            self.logger.debug(f"Running yt-dlp update command: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,  # 2 minute timeout for updates
+            )
 
-            # Download new version
-            success = self.download_tool("yt-dlp")
-
-            if success:
-                self.logger.info(
-                    f"Successfully updated yt-dlp from {current_version} to "
-                    f"{latest_version}"
-                )
-
-                # Verify the new version
-                new_version = self.get_tool_version("yt-dlp")
-                if new_version and new_version != current_version:
+            if result.returncode == 0:
+                # Parse output to determine if update occurred
+                output = result.stdout.strip()
+                
+                if "already up-to-date" in output.lower() or "up to date" in output.lower():
+                    self.logger.info(f"yt-dlp is already up to date (version: {current_version})")
+                elif "updated" in output.lower() or "downloading" in output.lower():
+                    # Get new version after update
+                    new_version = self.get_tool_version("yt-dlp", current_path)
                     self.logger.info(
-                        f"yt-dlp update verified (new version: {new_version})"
+                        f"Successfully updated yt-dlp from {current_version} to {new_version}"
                     )
-
-                    # Clean up backup if update was successful
-                    if current_path and backup_path and backup_path.exists():
-                        try:
-                            backup_path.unlink()
-                            self.logger.debug(
-                                "Removed backup file after successful update"
-                            )
-                        except OSError as e:
-                            self.logger.warning(f"Could not remove backup file: {e}")
                 else:
-                    self.logger.warning(
-                        "Could not verify yt-dlp update, but download appeared "
-                        "successful"
-                    )
-
+                    # Successful execution but unclear output
+                    self.logger.info("yt-dlp update command completed successfully")
+                
                 return True
             else:
-                self.logger.error("Failed to download new yt-dlp version")
+                self.logger.warning(
+                    f"yt-dlp update failed with exit code {result.returncode}: {result.stderr}"
+                )
+                # Don't treat update failure as fatal - the tool might still work
+                return True
 
-                # Restore backup if available
-                if current_path and backup_path and backup_path.exists():
-                    try:
-                        shutil.copy2(backup_path, current_path)
-                        backup_path.unlink()
-                        self.logger.info(
-                            "Restored previous yt-dlp version after failed update"
-                        )
-                    except OSError as e:
-                        self.logger.error(
-                            f"Could not restore backup after failed update: {e}"
-                        )
-
-                return False
-
+        except subprocess.TimeoutExpired:
+            self.logger.error("yt-dlp update timed out after 2 minutes")
+            return False
         except Exception as e:
-            self.logger.error(f"Unexpected error during yt-dlp update check: {e}")
+            self.logger.error(f"yt-dlp update check failed: {e}")
             return False
