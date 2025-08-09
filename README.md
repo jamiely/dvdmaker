@@ -89,15 +89,10 @@ Skip ISO generation:
 python -m dvdmaker --playlist-url "PLxxx" --no-iso
 ```
 
-Car DVD player compatibility (Honda Odyssey, etc.):
-```bash
-python -m dvdmaker --playlist-url "PLxxx" --car-dvd-compatibility
-```
-
 Clean cache files:
 ```bash
-python -m dvdmaker --cleanup conversions  # Clean converted video files
-python -m dvdmaker --cleanup all          # Clean all cache types
+python -m dvdmaker --clean conversions  # Clean converted video files
+python -m dvdmaker --clean all          # Clean all cache types
 ```
 
 ### Options
@@ -114,15 +109,16 @@ python -m dvdmaker --cleanup all          # Clean all cache types
 - `--quality`: Video quality preference (default: best)
 - `--video-format`: DVD video format - NTSC (29.97fps, 720x480) or PAL (25fps, 720x576) (default: NTSC)
 - `--aspect-ratio`: DVD aspect ratio - 4:3 (standard) or 16:9 (widescreen) (default: 16:9)
-- `--car-dvd-compatibility`: Enable strict DVD-Video spec compliance for car DVD players
 
 #### DVD Options
 - `--menu-title`: Custom DVD menu title (default: playlist title)
 - `--no-iso`: Skip ISO image generation (ISO creation is enabled by default)
+- `--autoplay`: Enable DVD autoplay (automatically start playing videos on insertion)
 
 #### Cache Options
-- `--force-download`: Force re-download even if cached
+- `--force-download`: Force re-download all video files and refresh playlist data, even if cached
 - `--force-convert`: Force re-conversion even if cached
+- `--refresh-playlist`: Refresh playlist data to detect newly added videos (without re-downloading existing videos)
 
 #### Tool Options
 - `--download-tools`: Download required tools to local bin directory
@@ -135,7 +131,7 @@ python -m dvdmaker --cleanup all          # Clean all cache types
 - `--quiet`: Suppress all console output except errors
 
 #### Cleanup Options
-- `--cleanup`: Clean cache/output/temp files by type (downloads, conversions, dvd-output, isos, temp, all)
+- `--clean`: Clean cache/output/temp files by type (downloads, conversions, dvd-output, isos, all)
 
 #### Configuration
 - `--config`: Configuration file path
