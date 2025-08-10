@@ -294,8 +294,9 @@ class DVDAuthor(BaseService):
             self._report_progress("Creating DVD authoring configuration", 0.2)
             dvd_xml = self._create_dvd_xml(dvd_structure, video_ts_dir)
 
-            # Skip button overlays since we're not using menu videos
-            self._report_progress("Skipping button overlays (no menu videos)", 0.3)
+            # Create button overlays for menu videos
+            self._report_progress("Creating button overlays for menu videos", 0.3)
+            self._create_button_overlays(playlist_output_dir)
 
             # Run dvdauthor
             self._report_progress("Running dvdauthor", 0.4)
@@ -604,14 +605,13 @@ class DVDAuthor(BaseService):
         menus = ET.SubElement(vmgm, "menus")
 
         # Add video and audio specifications for VMGM
-        vmgm_aspect = (
-            "4:3" if self.settings.car_dvd_compatibility else self.settings.aspect_ratio
-        )
+        # DVDStyler analysis shows 16:9 throughout works better for car compatibility
+        vmgm_aspect = self.settings.aspect_ratio
 
-        if self.settings.car_dvd_compatibility and self.settings.aspect_ratio != "4:3":
+        if self.settings.car_dvd_compatibility:
             self.logger.debug(
-                f"Car DVD compatibility mode: overriding VMGM aspect ratio from "
-                f"{self.settings.aspect_ratio} to 4:3 for better compatibility"
+                f"Car DVD compatibility mode: using consistent {vmgm_aspect} aspect ratio "
+                f"throughout (matches DVDStyler approach)"
             )
 
         # Create video element with aspect ratio (only add widescreen for 16:9)
@@ -645,17 +645,26 @@ class DVDAuthor(BaseService):
 
         pgc = ET.SubElement(menus, "pgc", entry="title")
 
-        # Create VMGM menu without video (autoplay functionality)
+        # Create VMGM menu with video (essential for car DVD compatibility)
         if ordered_chapters:
-            # Add buttons for navigation (no video required)
+            # Create VMGM menu video (like DVDStyler's menu0-0.mpg)
+            vmgm_menu_file = temp_dir / "menu0-0.mpg"
+            self._create_menu_video(
+                ordered_chapters[0].video_file.file_path,
+                vmgm_menu_file,
+                aspect_ratio=vmgm_aspect,
+            )
+
+            # Add buttons for navigation (DVDStyler structure)
             ET.SubElement(pgc, "button", name="button01").text = "g0=1;jump title 1;"
             if len(ordered_chapters) > 1:
                 ET.SubElement(pgc, "button", name="button02").text = (
                     "g0=0;jump titleset 1 menu;"
                 )
 
-            # Auto-jump to first title without menu video
-            ET.SubElement(pgc, "pre").text = "g1=101;jump title 1;"
+            # Add menu video and DVDStyler-style navigation
+            ET.SubElement(pgc, "vob", file=str(vmgm_menu_file), pause="inf")
+            ET.SubElement(pgc, "pre").text = "g1=101;"
         else:
             # Fallback to simple jump if no chapters
             ET.SubElement(pgc, "pre").text = "jump title 1;"
@@ -698,14 +707,42 @@ class DVDAuthor(BaseService):
 
             menu_pgc = ET.SubElement(titleset_menus, "pgc", entry="ptt,root")
 
-            # Create minimal chapter navigation buttons (just play and main menu)
-            ET.SubElement(menu_pgc, "button", name="button01").text = "g0=0;jump title 1;"
-            ET.SubElement(menu_pgc, "button", name="button02").text = "g0=0;jump vmgm menu 1;"
+            # Create titleset menu video (like DVDStyler's menu1-0.mpg)
+            titleset_menu_file = temp_dir / "menu1-0.mpg"
+            # Use second video or first if only one
+            menu_source = (
+                ordered_chapters[1]
+                if len(ordered_chapters) > 1
+                else ordered_chapters[0]
+            )
+            self._create_menu_video(
+                menu_source.video_file.file_path,
+                titleset_menu_file,
+                aspect_ratio=self.settings.aspect_ratio,
+            )
 
-            # Auto-jump to first title without menu video
+            # Create chapter navigation buttons (limit to 6 like DVDStyler's first menu)
+            max_buttons = min(len(ordered_chapters), 6)
+            for i in range(max_buttons):
+                button_name = f"button{i+1:02d}"
+                if i == 0:
+                    # First button plays from beginning (DVDStyler style)
+                    button_text = "g0=0;jump title 1;"
+                else:
+                    # Other buttons jump to specific chapters
+                    chapter_num = i + 1
+                    button_text = f"g0=0;jump title 1 chapter {chapter_num};"
+                ET.SubElement(menu_pgc, "button", name=button_name).text = button_text
+
+            # Add navigation buttons
+            ET.SubElement(menu_pgc, "button", name="button07").text = (
+                "g0=0;jump vmgm menu 1;"
+            )
+
+            # Add menu video and DVDStyler-style pre command
+            ET.SubElement(menu_pgc, "vob", file=str(titleset_menu_file), pause="inf")
             pre_text = (
-                "if (g1 & 0x8000 !=0) {g1^=0x8000;if (g1==101) jump vmgm menu 1;}"
-                "g1=1;jump title 1;"
+                "if (g1 & 0x8000 !=0) {g1^=0x8000;if (g1==101) jump vmgm menu 1;}g1=1;"
             )
             ET.SubElement(menu_pgc, "pre").text = pre_text
 
