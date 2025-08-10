@@ -1030,12 +1030,18 @@ class TestYtDlpUpdateFunctionality:
         mock_download.assert_called_once_with("yt-dlp")
 
     @patch.object(ToolManager, "_should_check_ytdlp_update")
-    @patch.object(ToolManager, "is_tool_available_locally")  
+    @patch.object(ToolManager, "is_tool_available_locally")
     @patch.object(ToolManager, "get_tool_path")
     @patch.object(ToolManager, "get_tool_version")
     @patch("subprocess.run")
     def test_check_and_update_ytdlp_already_up_to_date(
-        self, mock_subprocess, mock_get_version, mock_get_path, mock_available, mock_should_check, tmp_path
+        self,
+        mock_subprocess,
+        mock_get_version,
+        mock_get_path,
+        mock_available,
+        mock_should_check,
+        tmp_path,
     ):
         """Test yt-dlp update when tool is already up-to-date."""
         # Setup
@@ -1044,7 +1050,7 @@ class TestYtDlpUpdateFunctionality:
         ytdlp_path = tmp_path / "yt-dlp"
         mock_get_path.return_value = ytdlp_path
         mock_get_version.return_value = "2024.01.04"
-        
+
         # Mock yt-dlp -U output for already up-to-date
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -1064,7 +1070,13 @@ class TestYtDlpUpdateFunctionality:
     @patch.object(ToolManager, "get_tool_version")
     @patch("subprocess.run")
     def test_check_and_update_ytdlp_successful_update(
-        self, mock_subprocess, mock_get_version, mock_get_path, mock_available, mock_should_check, tmp_path
+        self,
+        mock_subprocess,
+        mock_get_version,
+        mock_get_path,
+        mock_available,
+        mock_should_check,
+        tmp_path,
     ):
         """Test successful yt-dlp update."""
         # Setup
@@ -1073,8 +1085,8 @@ class TestYtDlpUpdateFunctionality:
         ytdlp_path = tmp_path / "yt-dlp"
         mock_get_path.return_value = ytdlp_path
         mock_get_version.side_effect = ["2023.12.30", "2024.01.04"]  # Before and after
-        
-        # Mock yt-dlp -U output for successful update  
+
+        # Mock yt-dlp -U output for successful update
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "downloading latest version..."
@@ -1093,7 +1105,13 @@ class TestYtDlpUpdateFunctionality:
     @patch.object(ToolManager, "get_tool_version")
     @patch("subprocess.run")
     def test_check_and_update_ytdlp_update_failure(
-        self, mock_subprocess, mock_get_version, mock_get_path, mock_available, mock_should_check, tmp_path
+        self,
+        mock_subprocess,
+        mock_get_version,
+        mock_get_path,
+        mock_available,
+        mock_should_check,
+        tmp_path,
     ):
         """Test yt-dlp update when subprocess fails."""
         # Setup
@@ -1102,7 +1120,7 @@ class TestYtDlpUpdateFunctionality:
         ytdlp_path = tmp_path / "yt-dlp"
         mock_get_path.return_value = ytdlp_path
         mock_get_version.return_value = "2023.12.30"
-        
+
         # Mock yt-dlp -U failure
         mock_result = MagicMock()
         mock_result.returncode = 1
@@ -1122,7 +1140,13 @@ class TestYtDlpUpdateFunctionality:
     @patch.object(ToolManager, "get_tool_version")
     @patch("subprocess.run")
     def test_check_and_update_ytdlp_timeout(
-        self, mock_subprocess, mock_get_version, mock_get_path, mock_available, mock_should_check, tmp_path
+        self,
+        mock_subprocess,
+        mock_get_version,
+        mock_get_path,
+        mock_available,
+        mock_should_check,
+        tmp_path,
     ):
         """Test yt-dlp update when subprocess times out."""
         # Setup
@@ -1131,9 +1155,11 @@ class TestYtDlpUpdateFunctionality:
         ytdlp_path = tmp_path / "yt-dlp"
         mock_get_path.return_value = ytdlp_path
         mock_get_version.return_value = "2023.12.30"
-        
+
         # Mock timeout
-        mock_subprocess.side_effect = subprocess.TimeoutExpired([str(ytdlp_path), "-U"], 120)
+        mock_subprocess.side_effect = subprocess.TimeoutExpired(
+            [str(ytdlp_path), "-U"], 120
+        )
 
         result = self.tool_manager.check_and_update_ytdlp()
 

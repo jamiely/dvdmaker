@@ -404,26 +404,83 @@ class DVDAuthor(BaseService):
         self,
         source_video: Path,
         output_path: Path,
-        duration: float = 0.5,
+        duration: float = 30.0,
         aspect_ratio: Optional[str] = None,
+        is_vmgm: bool = True,
     ) -> None:
-        """Create a short menu video clip from source video using ffmpeg.
+        """Create a menu video with DVDStyler-style text overlays using ffmpeg.
 
         Args:
             source_video: Source video file to clip from
             output_path: Output path for menu video
             duration: Duration in seconds for menu clip
             aspect_ratio: Target aspect ratio for menu video (defaults to settings)
+            is_vmgm: True for main menu, False for titleset menus
         """
         try:
             ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
 
-            # Create a short clip from the beginning of the video for menu
+            # Create resolution based on video format
+            if self.settings.video_format.upper() == "NTSC":
+                resolution = "720x480"
+                framerate = "29.97"
+            else:
+                resolution = "720x576"
+                framerate = "25"
+
+            # Create text overlays that match DVDStyler positioning
+            # Use robust font handling - fallback if Arial not found
+            font_path = "/System/Library/Fonts/Arial.ttf"
+            try:
+                from pathlib import Path as FontPath
+
+                if not FontPath(font_path).exists():
+                    # Try common font alternatives
+                    alternatives = [
+                        "/System/Library/Fonts/Helvetica.ttc",
+                        "/System/Library/Fonts/System Font Regular.ttc",
+                        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                        "/usr/share/fonts/TTF/arial.ttf",
+                    ]
+                    for alt_font in alternatives:
+                        if FontPath(alt_font).exists():
+                            font_path = alt_font
+                            break
+                    else:
+                        # Use default font (no fontfile parameter)
+                        font_path = None
+            except Exception:
+                font_path = None
+
+            if is_vmgm:
+                # VMGM menu with "Play all" and "Select chapter" text
+                # Position text at DVDStyler locations
+                font_spec = f"fontfile={font_path}:" if font_path else ""
+                drawtext_filter = (
+                    f"drawtext={font_spec}"
+                    "text='Play all':fontsize=18:fontcolor=white:"
+                    "x=120:y=286:enable='between(t,0,30)',"
+                    f"drawtext={font_spec}"
+                    "text='Select chapter':fontsize=18:fontcolor=white:"
+                    "x=120:y=312:enable='between(t,0,30)'"
+                )
+            else:
+                # Titleset menu - simpler for now
+                font_spec = f"fontfile={font_path}:" if font_path else ""
+                drawtext_filter = (
+                    f"drawtext={font_spec}"
+                    "text='Back':fontsize=14:fontcolor=white:"
+                    "x=56:y=360:enable='between(t,0,30)'"
+                )
+
+            # Create menu video with text overlays
             cmd = ffmpeg_cmd + [
                 "-i",
                 str(source_video),
                 "-t",
                 str(duration),  # Duration of clip
+                "-vf",
+                drawtext_filter,  # Add text overlays
                 "-c:v",
                 "mpeg2video",  # DVD video codec
                 "-c:a",
@@ -433,13 +490,9 @@ class DVDAuthor(BaseService):
                 "-b:a",
                 "192k",  # Standard AC3 bitrate
                 "-r",
-                "29.97" if self.settings.video_format.upper() == "NTSC" else "25",
+                framerate,
                 "-s",
-                (
-                    "720x480"
-                    if self.settings.video_format.upper() == "NTSC"
-                    else "720x576"
-                ),
+                resolution,
                 "-aspect",
                 aspect_ratio if aspect_ratio else self.settings.aspect_ratio,
                 "-f",
@@ -448,7 +501,10 @@ class DVDAuthor(BaseService):
                 str(output_path),
             ]
 
-            self.logger.debug(f"Creating menu video: {output_path.name}")
+            self.logger.debug(
+                f"Creating {'VMGM' if is_vmgm else 'titleset'} menu video: "
+                f"{output_path.name}"
+            )
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             if result.stderr:
@@ -610,8 +666,8 @@ class DVDAuthor(BaseService):
 
         if self.settings.car_dvd_compatibility:
             self.logger.debug(
-                f"Car DVD compatibility mode: using consistent {vmgm_aspect} aspect ratio "
-                f"throughout (matches DVDStyler approach)"
+                f"Car DVD compatibility mode: using consistent {vmgm_aspect} "
+                f"aspect ratio throughout (matches DVDStyler approach)"
             )
 
         # Create video element with aspect ratio (only add widescreen for 16:9)
@@ -653,6 +709,7 @@ class DVDAuthor(BaseService):
                 ordered_chapters[0].video_file.file_path,
                 vmgm_menu_file,
                 aspect_ratio=vmgm_aspect,
+                is_vmgm=True,
             )
 
             # Add buttons for navigation (DVDStyler structure)
@@ -719,6 +776,7 @@ class DVDAuthor(BaseService):
                 menu_source.video_file.file_path,
                 titleset_menu_file,
                 aspect_ratio=self.settings.aspect_ratio,
+                is_vmgm=False,
             )
 
             # Create chapter navigation buttons (limit to 6 like DVDStyler's first menu)

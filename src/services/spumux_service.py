@@ -220,20 +220,20 @@ class SpumuxService(BaseService):
             # Create button configuration
             button_config = self._create_button_config()
 
-            # Create button graphic
-            graphic_file = self._create_button_graphic(
+            # Create button graphics (normal, highlight, select)
+            graphic_files = self._create_button_graphics(
                 button_config, output_dir / "temp_buttons"
             )
 
             # Generate spumux XML
             xml_file = self._generate_spumux_xml(
-                button_config, graphic_file, output_dir
+                button_config, graphic_files, output_dir
             )
 
             # Execute spumux
             subtitle_files = self._execute_spumux(xml_file, menu_video, output_dir)
 
-            overlay = ButtonOverlay(button_config, graphic_file, subtitle_files)
+            overlay = ButtonOverlay(button_config, graphic_files[0], subtitle_files)
 
             self._log_operation_complete(
                 "button overlay creation", button_name=button_config.name
@@ -246,37 +246,35 @@ class SpumuxService(BaseService):
             return None
 
     def _create_button_config(self) -> ButtonConfig:
-        """Create button configuration from settings.
+        """Create button configuration matching DVDStyler's "Play All" button.
 
         Returns:
-            ButtonConfig object with default "Play" button
+            ButtonConfig object with DVDStyler-compatible "Play All" button
         """
-        # Get settings with defaults
-        button_text = getattr(self.settings, "button_text", "PLAY")
-        button_position = getattr(self.settings, "button_position", (360, 400))
-        button_size = getattr(self.settings, "button_size", (120, 40))
-        button_color = getattr(self.settings, "button_color", "#FFFFFF")
-
+        # DVDStyler positioning: button01 at (120, 286) to (219, 310)  
+        # Force DVDStyler coordinates for maximum car DVD compatibility
+        # Override any existing settings to ensure DVDStyler positioning
+        
         return ButtonConfig(
             name="button01",
-            text=button_text,
-            position=button_position,
-            size=button_size,
-            navigation_command="g0=1;jump title 1;",
-            color=button_color,
+            text="Play all",       # DVDStyler exact text
+            position=(169, 298),   # Center of DVDStyler button: (120+219)/2, (286+310)/2
+            size=(99, 24),         # DVDStyler dimensions: (219-120, 310-286)
+            navigation_command="g0=1;jump title 1;",  # The autoplay magic!
+            color="#FFFFFF",       # White text
         )
 
-    def _create_button_graphic(
+    def _create_button_graphics(
         self, button_config: ButtonConfig, output_dir: Path
-    ) -> Path:
-        """Create button graphic PNG file.
+    ) -> Tuple[Path, Path, Path]:
+        """Create DVDStyler-style button graphics (normal, highlight, select).
 
         Args:
             button_config: Button configuration
-            output_dir: Directory for output file
+            output_dir: Directory for output files
 
         Returns:
-            Path to created PNG file
+            Tuple of (normal, highlight, select) PNG file paths
 
         Raises:
             ButtonGraphicError: If graphic creation fails
@@ -285,105 +283,102 @@ class SpumuxService(BaseService):
             raise ButtonGraphicError("PIL/Pillow not available for button graphics")
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        graphic_file = output_dir / f"{button_config.name}.png"
+        
+        # DVDStyler naming convention  
+        normal_file = output_dir / f"{button_config.name}_buttons.png"
+        highlight_file = output_dir / f"{button_config.name}_highlight.png" 
+        select_file = output_dir / f"{button_config.name}_select.png"
 
         try:
-            # Create transparent image
-            width, height = button_config.size
-            image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(image)
+            screen_width = 720
+            screen_height = 480
+            button_x0, button_y0 = button_config.x0, button_config.y0
+            button_x1, button_y1 = button_config.x1, button_config.y1
 
-            # Try to load a font, fallback to default if not available
-            font: Any = None
-            try:
-                # Try to use a common system font
-                font = ImageFont.truetype("Arial.ttf", 16)
-            except (OSError, IOError):
-                try:
-                    font = ImageFont.load_default()
-                except Exception:
-                    font = None
+            # 1. Normal state - mostly transparent (like DVDStyler)
+            normal_image = Image.new("RGBA", (screen_width, screen_height), (0, 0, 0, 0))
+            normal_image.save(normal_file, "PNG")
 
-            # Convert hex color to RGB
-            color_hex = button_config.color.lstrip("#")
-            color_rgb = tuple(int(color_hex[i : i + 2], 16) for i in (0, 2, 4))
-            color_rgba = color_rgb + (255,)  # Add alpha channel
+            # 2. Highlight state - blue rectangle (like DVDStyler's highlight)
+            highlight_image = Image.new("RGBA", (screen_width, screen_height), (0, 0, 0, 0))
+            highlight_pixels = highlight_image.load()
+            
+            # Draw blue highlight rectangle matching DVDStyler's style
+            for y in range(button_y0, button_y1):
+                for x in range(button_x0, button_x1):
+                    if y < screen_height and x < screen_width:
+                        # Blue highlight color (like DVDStyler)
+                        highlight_pixels[x, y] = (100, 150, 255, 180)  # Light blue, semi-transparent
+            
+            highlight_image.save(highlight_file, "PNG")
 
-            # Draw text centered
-            text = button_config.text
-            if font:
-                # Get text size using textbbox (newer PIL)
-                try:
-                    bbox = draw.textbbox((0, 0), text, font=font)
-                    text_width = bbox[2] - bbox[0]
-                    text_height = bbox[3] - bbox[1]
-                except (AttributeError, TypeError):
-                    # Fallback when textbbox isn't available or font is wrong type
-                    text_width = len(text) * 8
-                    text_height = 16
-            else:
-                # Rough estimate without font
-                text_width = len(text) * 8
-                text_height = 16
-
-            text_x = (width - text_width) // 2
-            text_y = (height - text_height) // 2
-
-            draw.text((text_x, text_y), text, fill=color_rgba, font=font)
-
-            # Save PNG
-            image.save(graphic_file, "PNG")
+            # 3. Select state - brighter/different color when pressed  
+            select_image = Image.new("RGBA", (screen_width, screen_height), (0, 0, 0, 0))
+            select_pixels = select_image.load()
+            
+            # Draw brighter selection rectangle
+            for y in range(button_y0, button_y1):
+                for x in range(button_x0, button_x1):
+                    if y < screen_height and x < screen_width:
+                        # Brighter blue for selection (like DVDStyler)
+                        select_pixels[x, y] = (150, 200, 255, 220)  # Brighter blue
+                        
+            select_image.save(select_file, "PNG")
 
             self.logger.debug(
-                f"Created button graphic: {graphic_file.name} "
-                f"({width}x{height}, text='{text}')"
+                f"Created DVDStyler-style button graphics: normal({normal_file.name}), "
+                f"highlight({highlight_file.name}), select({select_file.name}) "
+                f"at ({button_x0},{button_y0})-({button_x1},{button_y1})"
             )
-            return graphic_file
+            return normal_file, highlight_file, select_file
 
         except Exception as e:
-            raise ButtonGraphicError(f"Failed to create button graphic: {e}") from e
+            raise ButtonGraphicError(f"Failed to create button graphics: {e}") from e
 
     def _generate_spumux_xml(
-        self, button_config: ButtonConfig, graphic_file: Path, output_dir: Path
+        self, button_config: ButtonConfig, graphic_files: Tuple[Path, Path, Path], output_dir: Path
     ) -> Path:
         """Generate spumux XML configuration file.
 
         Args:
             button_config: Button configuration
-            graphic_file: Path to button graphic
+            graphic_files: Tuple of (normal, highlight, select) PNG files
             output_dir: Directory for output file
 
         Returns:
             Path to created XML file
         """
         xml_file = output_dir / "spumux_config.xml"
+        normal_file, highlight_file, select_file = graphic_files
 
         # Create spumux XML structure
         subpictures = ET.Element("subpictures")
         stream = ET.SubElement(subpictures, "stream")
 
-        # Create SPU element with button graphic references and position offsets
+        # Create SPU element exactly like DVDStyler with separate state images
         spu = ET.SubElement(
             stream,
             "spu",
             start="00:00:00.00",
-            end="00:00:30.00",  # 30 second duration
-            highlight=str(graphic_file),
-            select=str(graphic_file),
+            image=str(normal_file),
+            highlight=str(highlight_file), 
+            select=str(select_file),
             force="yes",  # Force display for menu buttons
-            xoffset=str(button_config.x0),  # Position on screen
-            yoffset=str(button_config.y0),
         )
 
-        # Add button definition with coordinates relative to button image
+        # Add button definition with absolute screen coordinates (DVDStyler style)
         ET.SubElement(
             spu,
             "button",
             name=button_config.name,
-            x0="0",  # Relative to button image
-            y0="0",
-            x1=str(button_config.size[0]),  # Width of button image
-            y1=str(button_config.size[1]),  # Height of button image
+            x0=str(button_config.x0),  # Absolute screen coordinates
+            y0=str(button_config.y0),
+            x1=str(button_config.x1),
+            y1=str(button_config.y1),
+            left=button_config.name,   # Self-referencing navigation
+            right=button_config.name,
+            up=button_config.name,
+            down="button02" if button_config.name == "button01" else "button01",
         )
 
         # Write XML to file with pretty formatting

@@ -1026,9 +1026,9 @@ class ToolManager(BaseService):
 
             # Use yt-dlp's built-in update functionality
             cmd = [str(current_path), "-U"]
-            
+
             self.logger.debug(f"Running yt-dlp update command: {' '.join(cmd)}")
-            
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -1039,9 +1039,14 @@ class ToolManager(BaseService):
             if result.returncode == 0:
                 # Parse output to determine if update occurred
                 output = result.stdout.strip()
-                
-                if "already up-to-date" in output.lower() or "up to date" in output.lower():
-                    self.logger.info(f"yt-dlp is already up to date (version: {current_version})")
+
+                if (
+                    "already up-to-date" in output.lower()
+                    or "up to date" in output.lower()
+                ):
+                    self.logger.info(
+                        f"yt-dlp is already up to date (version: {current_version})"
+                    )
                 elif "updated" in output.lower() or "downloading" in output.lower():
                     # Get new version after update
                     new_version = self.get_tool_version("yt-dlp", current_path)
@@ -1051,7 +1056,7 @@ class ToolManager(BaseService):
                 else:
                     # Successful execution but unclear output
                     self.logger.info("yt-dlp update command completed successfully")
-                
+
                 return True
             else:
                 self.logger.warning(
