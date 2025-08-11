@@ -180,16 +180,16 @@ class TestSpumuxService:
         config = spumux_service._create_button_config()
 
         assert config.name == "button01"
-        assert config.text == "PLAY"
-        assert config.position == (360, 400)
-        assert config.size == (120, 40)
+        assert config.text == "Play all"  # DVDStyler text
+        assert config.position == (169, 298)  # DVDStyler center position
+        assert config.size == (99, 24)  # DVDStyler dimensions
         assert config.color == "#FFFFFF"
         assert config.navigation_command == "g0=1;jump title 1;"
 
     def test_create_button_config_with_custom_settings(
         self, mock_tool_manager, mock_cache_manager, tmp_path
     ):
-        """Test _create_button_config with custom settings."""
+        """Test _create_button_config always uses DVDStyler for car compatibility."""
         settings = Settings(
             cache_dir=tmp_path / "cache",
             output_dir=tmp_path / "output",
@@ -203,29 +203,20 @@ class TestSpumuxService:
         service = SpumuxService(settings, mock_tool_manager, mock_cache_manager)
         config = service._create_button_config()
 
-        assert config.text == "START"
-        assert config.position == (100, 200)
-        assert config.size == (80, 30)
-        assert config.color == "#FF0000"
+        # DVDStyler settings override custom settings for car DVD compatibility
+        assert config.text == "Play all"  # Always DVDStyler text
+        assert config.position == (169, 298)  # Always DVDStyler position
+        assert config.size == (99, 24)  # Always DVDStyler size
+        assert config.color == "#FFFFFF"  # Always DVDStyler color
 
     @patch("src.services.spumux_service.PIL_AVAILABLE", True)
     @patch("src.services.spumux_service.Image")
-    @patch("src.services.spumux_service.ImageDraw")
-    @patch("src.services.spumux_service.ImageFont")
-    def test_create_button_graphic_success(
-        self, mock_font, mock_draw, mock_image, spumux_service, tmp_path
-    ):
-        """Test _create_button_graphic successful creation."""
+    def test_create_button_graphics_success(self, mock_image, spumux_service, tmp_path):
+        """Test _create_button_graphics successful creation."""
         # Set up mocks
         mock_img = Mock()
         mock_image.new.return_value = mock_img
-        mock_draw_obj = Mock()
-        mock_draw.Draw.return_value = mock_draw_obj
-        mock_font_obj = Mock()
-        mock_font.truetype.return_value = mock_font_obj
-
-        # Mock textbbox method
-        mock_draw_obj.textbbox.return_value = (0, 0, 40, 16)
+        mock_img.load.return_value = None  # Image.load() returns pixel access or None
 
         config = ButtonConfig(
             name="button01",
@@ -237,21 +228,23 @@ class TestSpumuxService:
         )
 
         output_dir = tmp_path / "buttons"
-        graphic_file = spumux_service._create_button_graphic(config, output_dir)
+        graphic_files = spumux_service._create_button_graphics(config, output_dir)
 
         # Check that directory was created
         assert output_dir.exists()
 
-        # Check that image methods were called
-        mock_image.new.assert_called_once_with("RGBA", (120, 40), (0, 0, 0, 0))
-        mock_draw.Draw.assert_called_once_with(mock_img)
-        mock_img.save.assert_called_once()
+        # Check that image methods were called (3 times for normal, highlight, select)
+        assert mock_image.new.call_count == 3
+        assert mock_img.save.call_count == 3
 
-        # Check return path
-        assert graphic_file == output_dir / "button01.png"
+        # Check return paths (normal, highlight, select)
+        normal_file, highlight_file, select_file = graphic_files
+        assert normal_file == output_dir / "button01_buttons.png"
+        assert highlight_file == output_dir / "button01_highlight.png"
+        assert select_file == output_dir / "button01_select.png"
 
-    def test_create_button_graphic_without_pil(self, spumux_service, tmp_path):
-        """Test _create_button_graphic when PIL is not available."""
+    def test_create_button_graphics_without_pil(self, spumux_service, tmp_path):
+        """Test _create_button_graphics when PIL is not available."""
         with patch("src.services.spumux_service.PIL_AVAILABLE", False):
             config = ButtonConfig(
                 name="button01",
@@ -262,22 +255,29 @@ class TestSpumuxService:
             )
 
             with pytest.raises(ButtonGraphicError, match="PIL/Pillow not available"):
-                spumux_service._create_button_graphic(config, tmp_path)
+                spumux_service._create_button_graphics(config, tmp_path)
 
-    def test_generate_spumux_xml(self, spumux_service, tmp_path):
+    def test_generate_spumux_xml(self, mock_tool_manager, mock_cache_manager, tmp_path):
         """Test _generate_spumux_xml creates valid XML."""
-        config = ButtonConfig(
-            name="button01",
-            text="PLAY",
-            position=(360, 400),
-            size=(120, 40),
-            navigation_command="g0=1;jump title 1;",
-        )
+        # Setup cache_manager mock
+        mock_cache_manager.cache_dir = tmp_path / "cache"
 
-        graphic_file = tmp_path / "button01.png"
-        graphic_file.touch()
+        service = SpumuxService(Settings(), mock_tool_manager, mock_cache_manager)
 
-        xml_file = spumux_service._generate_spumux_xml(config, graphic_file, tmp_path)
+        # Use the actual DVDStyler button configuration
+        config = service._create_button_config()
+
+        # Create graphic files
+        normal_file = tmp_path / "button01_buttons.png"
+        highlight_file = tmp_path / "button01_highlight.png"
+        select_file = tmp_path / "button01_select.png"
+        normal_file.touch()
+        highlight_file.touch()
+        select_file.touch()
+
+        graphic_files = (normal_file, highlight_file, select_file)
+
+        xml_file = service._generate_spumux_xml(config, graphic_files, tmp_path)
 
         # Check file was created
         assert xml_file.exists()
@@ -294,20 +294,20 @@ class TestSpumuxService:
         spu = stream.find("spu")
         assert spu is not None
         assert spu.get("start") == "00:00:00.00"
-        assert spu.get("end") == "00:00:30.00"
-        assert spu.get("highlight") == str(graphic_file)
-        assert spu.get("select") == str(graphic_file)
+        assert spu.get("image") == str(normal_file)
+        assert spu.get("highlight") == str(highlight_file)
+        assert spu.get("select") == str(select_file)
         assert spu.get("force") == "yes"
-        assert spu.get("xoffset") == "300"
-        assert spu.get("yoffset") == "380"
+        # DVDStyler uses absolute coordinates, no offsets
 
         button = spu.find("button")
         assert button is not None
         assert button.get("name") == "button01"
-        assert button.get("x0") == "0"
-        assert button.get("y0") == "0"
-        assert button.get("x1") == "120"
-        assert button.get("y1") == "40"
+        # DVDStyler coordinates (120,286) to (218,310)
+        assert button.get("x0") == "120"
+        assert button.get("y0") == "286"
+        assert button.get("x1") == "218"
+        assert button.get("y1") == "310"
 
     @patch("src.services.spumux_service.subprocess.run")
     def test_execute_spumux_success(self, mock_run, spumux_service, tmp_path):
@@ -374,23 +374,36 @@ class TestSpumuxService:
             assert result is None
 
     @patch("src.services.spumux_service.PIL_AVAILABLE", True)
-    def test_create_button_overlay_success(self, spumux_service, tmp_path):
+    def test_create_button_overlay_success(
+        self, mock_tool_manager, mock_cache_manager, tmp_path
+    ):
         """Test create_button_overlay successful execution."""
-        menu_video = tmp_path / "menu.mpg"
+        # Setup cache_manager mock
+        mock_cache_manager.cache_dir = tmp_path / "cache"
+
+        spumux_service = SpumuxService(
+            Settings(), mock_tool_manager, mock_cache_manager
+        )
+
+        menu_video = tmp_path / "menu.mpv"
         menu_video.touch()
 
         # Mock the individual methods to return expected results
         with (
-            patch.object(spumux_service, "_create_button_graphic") as mock_graphic,
+            patch.object(spumux_service, "_create_button_graphics") as mock_graphic,
             patch.object(spumux_service, "_generate_spumux_xml") as mock_xml,
             patch.object(spumux_service, "_execute_spumux") as mock_execute,
         ):
 
-            graphic_file = tmp_path / "button01.png"
+            graphic_files = (
+                tmp_path / "button01_buttons.png",
+                tmp_path / "button01_highlight.png",
+                tmp_path / "button01_select.png",
+            )
             xml_file = tmp_path / "config.xml"
             subtitle_files = SubtitleFiles(tmp_path / "menu.sub", tmp_path / "menu.idx")
 
-            mock_graphic.return_value = graphic_file
+            mock_graphic.return_value = graphic_files
             mock_xml.return_value = xml_file
             mock_execute.return_value = subtitle_files
 
@@ -403,7 +416,7 @@ class TestSpumuxService:
 
             # Check overlay result
             assert overlay is not None
-            assert overlay.graphic_file == graphic_file
+            assert overlay.graphic_file == graphic_files[0]  # Uses normal state file
             assert overlay.subtitle_files == subtitle_files
             assert overlay.button_config.name == "button01"
 
@@ -411,10 +424,10 @@ class TestSpumuxService:
         """Test create_button_overlay handles exceptions gracefully."""
         menu_video = tmp_path / "menu.mpg"
 
-        # Mock _create_button_graphic to raise an exception
+        # Mock _create_button_graphics to raise an exception
         with patch.object(
             spumux_service,
-            "_create_button_graphic",
+            "_create_button_graphics",
             side_effect=Exception("Test error"),
         ):
             overlay = spumux_service.create_button_overlay(menu_video, tmp_path)
@@ -444,23 +457,29 @@ class TestSpumuxServiceIntegration:
         """Test full workflow without requiring external tools."""
         mock_tool_manager = Mock()
         mock_cache_manager = Mock()
+        mock_cache_manager.cache_dir = tmp_path / "cache"
 
         service = SpumuxService(
             integration_settings, mock_tool_manager, mock_cache_manager
         )
 
-        # Test button config creation
+        # Test button config creation - DVDStyler settings override custom settings
         config = service._create_button_config()
-        assert config.text == "TEST"
-        assert config.position == (400, 300)
-        assert config.size == (100, 50)
-        assert config.color == "#00FF00"
+        assert config.text == "Play all"  # Always DVDStyler text for compatibility
+        assert config.position == (169, 298)  # Always DVDStyler position
+        assert config.size == (99, 24)  # Always DVDStyler size
+        assert config.color == "#FFFFFF"  # Always DVDStyler color
 
         # Test XML generation
-        graphic_file = tmp_path / "test_button.png"
-        graphic_file.touch()
+        normal_file = tmp_path / "button01_buttons.png"
+        highlight_file = tmp_path / "button01_highlight.png"
+        select_file = tmp_path / "button01_select.png"
+        normal_file.touch()
+        highlight_file.touch()
+        select_file.touch()
 
-        xml_file = service._generate_spumux_xml(config, graphic_file, tmp_path)
+        graphic_files = (normal_file, highlight_file, select_file)
+        xml_file = service._generate_spumux_xml(config, graphic_files, tmp_path)
         assert xml_file.exists()
 
         # Parse XML and verify structure
@@ -468,19 +487,24 @@ class TestSpumuxServiceIntegration:
         root = tree.getroot()
         assert root.tag == "subpictures"
 
-        # Find SPU element and verify offset positioning
+        # Find SPU element and verify DVDStyler-style attributes
         spu = root.find(".//spu")
         assert spu is not None
-        assert spu.get("xoffset") == "350"  # 400 - 100/2
-        assert spu.get("yoffset") == "275"  # 300 - 50/2
+        assert spu.get("start") == "00:00:00.00"
+        assert spu.get("image") == str(normal_file)
+        assert spu.get("highlight") == str(highlight_file)
+        assert spu.get("select") == str(select_file)
+        assert spu.get("force") == "yes"
 
-        # Find button element and verify image-relative coordinates
+        # Find button element and verify DVDStyler absolute coordinates
         button = root.find(".//button")
         assert button is not None
-        assert button.get("x0") == "0"  # Relative to button image
-        assert button.get("y0") == "0"
-        assert button.get("x1") == "100"  # Button width
-        assert button.get("y1") == "50"  # Button height
+        assert button.get("name") == "button01"
+        # DVDStyler coordinates (120,286) to (218,310)
+        assert button.get("x0") == "120"
+        assert button.get("y0") == "286"
+        assert button.get("x1") == "218"
+        assert button.get("y1") == "310"
 
 
 class TestSpumuxServiceEdgeCases:
@@ -542,9 +566,9 @@ class TestSpumuxServiceEdgeCases:
 
         service = SpumuxService(settings, mock_tool_manager, mock_cache_manager)
 
-        # Should use defaults for missing attributes
+        # Should use DVDStyler defaults for car DVD compatibility
         config = service._create_button_config()
-        assert config.text == "PLAY"  # Default value
-        assert config.position == (360, 400)  # Default value
-        assert config.size == (120, 40)  # Default value
-        assert config.color == "#FFFFFF"  # Default value
+        assert config.text == "Play all"  # DVDStyler text (overrides settings)
+        assert config.position == (169, 298)  # DVDStyler position (overrides settings)
+        assert config.size == (99, 24)  # DVDStyler size (overrides settings)
+        assert config.color == "#FFFFFF"  # DVDStyler color

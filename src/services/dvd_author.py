@@ -430,11 +430,11 @@ class DVDAuthor(BaseService):
 
             # Create text overlays that match DVDStyler positioning
             # Use robust font handling - fallback if Arial not found
-            font_path = "/System/Library/Fonts/Arial.ttf"
+            font_path: Optional[str] = "/System/Library/Fonts/Arial.ttf"
             try:
                 from pathlib import Path as FontPath
 
-                if not FontPath(font_path).exists():
+                if font_path and not FontPath(font_path).exists():
                     # Try common font alternatives
                     alternatives = [
                         "/System/Library/Fonts/Helvetica.ttc",
@@ -579,7 +579,7 @@ class DVDAuthor(BaseService):
             )
             return
 
-        temp_dir = playlist_output_dir / "temp_menus"
+        temp_dir = self.cache_manager.cache_dir / "temp_menus"
         if not temp_dir.exists():
             self.logger.debug(
                 "No temporary menu directory found - skipping button overlays"
@@ -620,7 +620,7 @@ class DVDAuthor(BaseService):
 
     def _cleanup_temp_menu_files(self, playlist_output_dir: Path) -> None:
         """Clean up temporary menu files after DVD creation."""
-        temp_dir = playlist_output_dir / "temp_menus"
+        temp_dir = self.cache_manager.cache_dir / "temp_menus"
         if temp_dir.exists():
             try:
                 import shutil
@@ -653,8 +653,9 @@ class DVDAuthor(BaseService):
         video_format = self.settings.video_format.lower()  # dvdauthor expects lowercase
 
         ordered_chapters = dvd_structure.get_chapters_ordered()
-        temp_dir = video_ts_dir.parent / "temp_menus"
-        temp_dir.mkdir(exist_ok=True)
+        # Create menu files in cache to avoid polluting output directory
+        temp_dir = self.cache_manager.cache_dir / "temp_menus"
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
         # Create VMGM (Video Manager Menu) like DVDStyler
         vmgm = ET.SubElement(dvdauthor, "vmgm")
@@ -837,8 +838,10 @@ class DVDAuthor(BaseService):
         if len(ordered_chapters) > 1:
             ET.SubElement(title_pgc, "post").text = "g1|=0x8000; call menu entry root;"
 
-        # Write XML to temporary file with pretty formatting
-        xml_file = video_ts_dir.parent / "dvd_structure.xml"
+        # Write XML to cache directory to avoid polluting output directory
+        cache_dir = self.cache_manager.cache_dir / "build"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        xml_file = cache_dir / "dvd_structure.xml"
 
         # Pretty print the XML for debugging
         import xml.dom.minidom

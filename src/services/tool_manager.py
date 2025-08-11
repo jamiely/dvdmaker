@@ -121,7 +121,7 @@ class ToolManager(BaseService):
                 self.logger.debug(f"Command stdout: {result.stdout.strip()}")
 
             if capture_output and result.stderr:
-                # Special cases: tools that write help/version info to stderr but are successful
+                # Special cases: tools write help/version info to stderr but succeed
                 is_dvdauthor_help = (
                     "dvdauthor" in cmd_str
                     and "--help" in cmd_str
@@ -1021,7 +1021,7 @@ class ToolManager(BaseService):
             current_version = self.get_tool_version("yt-dlp", current_path)
 
             self.logger.info(
-                f"Checking for yt-dlp updates (current version: {current_version or 'unknown'})"
+                f"Checking for yt-dlp updates (current: {current_version or 'unknown'})"
             )
 
             # Use yt-dlp's built-in update functionality
@@ -1051,7 +1051,7 @@ class ToolManager(BaseService):
                     # Get new version after update
                     new_version = self.get_tool_version("yt-dlp", current_path)
                     self.logger.info(
-                        f"Successfully updated yt-dlp from {current_version} to {new_version}"
+                        f"yt-dlp updated: {current_version} -> {new_version}"
                     )
                 else:
                     # Successful execution but unclear output
@@ -1060,7 +1060,7 @@ class ToolManager(BaseService):
                 return True
             else:
                 self.logger.warning(
-                    f"yt-dlp update failed with exit code {result.returncode}: {result.stderr}"
+                    f"yt-dlp update failed (code {result.returncode}): {result.stderr}"
                 )
                 # Don't treat update failure as fatal - the tool might still work
                 return True

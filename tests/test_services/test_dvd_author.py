@@ -58,9 +58,11 @@ def mock_tool_manager():
 
 
 @pytest.fixture
-def mock_cache_manager():
+def mock_cache_manager(tmp_path):
     """Create mock cache manager."""
-    return Mock(spec=CacheManager)
+    mock = Mock(spec=CacheManager)
+    mock.cache_dir = tmp_path / "cache"
+    return mock
 
 
 @pytest.fixture

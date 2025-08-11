@@ -10,10 +10,10 @@ This module handles creating DVD button overlays using spumux, including:
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image
 except ImportError:
     PIL_AVAILABLE = False
 else:
@@ -220,9 +220,10 @@ class SpumuxService(BaseService):
             # Create button configuration
             button_config = self._create_button_config()
 
-            # Create button graphics (normal, highlight, select)
+            # Create button graphics in cache to avoid polluting output directory
+            cache_buttons_dir = self.cache_manager.cache_dir / "temp_buttons"
             graphic_files = self._create_button_graphics(
-                button_config, output_dir / "temp_buttons"
+                button_config, cache_buttons_dir
             )
 
             # Generate spumux XML
@@ -251,17 +252,17 @@ class SpumuxService(BaseService):
         Returns:
             ButtonConfig object with DVDStyler-compatible "Play All" button
         """
-        # DVDStyler positioning: button01 at (120, 286) to (219, 310)  
+        # DVDStyler positioning: button01 at (120, 286) to (219, 310)
         # Force DVDStyler coordinates for maximum car DVD compatibility
         # Override any existing settings to ensure DVDStyler positioning
-        
+
         return ButtonConfig(
             name="button01",
-            text="Play all",       # DVDStyler exact text
-            position=(169, 298),   # Center of DVDStyler button: (120+219)/2, (286+310)/2
-            size=(99, 24),         # DVDStyler dimensions: (219-120, 310-286)
+            text="Play all",  # DVDStyler exact text
+            position=(169, 298),  # Center of DVDStyler button: (120+219)/2, (286+310)/2
+            size=(99, 24),  # DVDStyler dimensions: (219-120, 310-286)
             navigation_command="g0=1;jump title 1;",  # The autoplay magic!
-            color="#FFFFFF",       # White text
+            color="#FFFFFF",  # White text
         )
 
     def _create_button_graphics(
@@ -283,10 +284,10 @@ class SpumuxService(BaseService):
             raise ButtonGraphicError("PIL/Pillow not available for button graphics")
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # DVDStyler naming convention  
+
+        # DVDStyler naming convention
         normal_file = output_dir / f"{button_config.name}_buttons.png"
-        highlight_file = output_dir / f"{button_config.name}_highlight.png" 
+        highlight_file = output_dir / f"{button_config.name}_highlight.png"
         select_file = output_dir / f"{button_config.name}_select.png"
 
         try:
@@ -296,33 +297,46 @@ class SpumuxService(BaseService):
             button_x1, button_y1 = button_config.x1, button_config.y1
 
             # 1. Normal state - mostly transparent (like DVDStyler)
-            normal_image = Image.new("RGBA", (screen_width, screen_height), (0, 0, 0, 0))
+            normal_image = Image.new(
+                "RGBA", (screen_width, screen_height), (0, 0, 0, 0)
+            )
             normal_image.save(normal_file, "PNG")
 
             # 2. Highlight state - blue rectangle (like DVDStyler's highlight)
-            highlight_image = Image.new("RGBA", (screen_width, screen_height), (0, 0, 0, 0))
+            highlight_image = Image.new(
+                "RGBA", (screen_width, screen_height), (0, 0, 0, 0)
+            )
             highlight_pixels = highlight_image.load()
-            
+
             # Draw blue highlight rectangle matching DVDStyler's style
-            for y in range(button_y0, button_y1):
-                for x in range(button_x0, button_x1):
-                    if y < screen_height and x < screen_width:
-                        # Blue highlight color (like DVDStyler)
-                        highlight_pixels[x, y] = (100, 150, 255, 180)  # Light blue, semi-transparent
-            
+            if highlight_pixels is not None:
+                for y in range(button_y0, button_y1):
+                    for x in range(button_x0, button_x1):
+                        if y < screen_height and x < screen_width:
+                            # Blue highlight color (like DVDStyler)
+                            highlight_pixels[x, y] = (
+                                100,
+                                150,
+                                255,
+                                180,
+                            )  # Light blue, semi-transparent
+
             highlight_image.save(highlight_file, "PNG")
 
-            # 3. Select state - brighter/different color when pressed  
-            select_image = Image.new("RGBA", (screen_width, screen_height), (0, 0, 0, 0))
+            # 3. Select state - brighter/different color when pressed
+            select_image = Image.new(
+                "RGBA", (screen_width, screen_height), (0, 0, 0, 0)
+            )
             select_pixels = select_image.load()
-            
+
             # Draw brighter selection rectangle
-            for y in range(button_y0, button_y1):
-                for x in range(button_x0, button_x1):
-                    if y < screen_height and x < screen_width:
-                        # Brighter blue for selection (like DVDStyler)
-                        select_pixels[x, y] = (150, 200, 255, 220)  # Brighter blue
-                        
+            if select_pixels is not None:
+                for y in range(button_y0, button_y1):
+                    for x in range(button_x0, button_x1):
+                        if y < screen_height and x < screen_width:
+                            # Brighter blue for selection (like DVDStyler)
+                            select_pixels[x, y] = (150, 200, 255, 220)  # Brighter blue
+
             select_image.save(select_file, "PNG")
 
             self.logger.debug(
@@ -336,7 +350,10 @@ class SpumuxService(BaseService):
             raise ButtonGraphicError(f"Failed to create button graphics: {e}") from e
 
     def _generate_spumux_xml(
-        self, button_config: ButtonConfig, graphic_files: Tuple[Path, Path, Path], output_dir: Path
+        self,
+        button_config: ButtonConfig,
+        graphic_files: Tuple[Path, Path, Path],
+        output_dir: Path,
     ) -> Path:
         """Generate spumux XML configuration file.
 
@@ -348,7 +365,10 @@ class SpumuxService(BaseService):
         Returns:
             Path to created XML file
         """
-        xml_file = output_dir / "spumux_config.xml"
+        # Create XML in cache directory to avoid polluting output directory
+        cache_dir = self.cache_manager.cache_dir / "build"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        xml_file = cache_dir / "spumux_config.xml"
         normal_file, highlight_file, select_file = graphic_files
 
         # Create spumux XML structure
@@ -361,7 +381,7 @@ class SpumuxService(BaseService):
             "spu",
             start="00:00:00.00",
             image=str(normal_file),
-            highlight=str(highlight_file), 
+            highlight=str(highlight_file),
             select=str(select_file),
             force="yes",  # Force display for menu buttons
         )
@@ -375,7 +395,7 @@ class SpumuxService(BaseService):
             y0=str(button_config.y0),
             x1=str(button_config.x1),
             y1=str(button_config.y1),
-            left=button_config.name,   # Self-referencing navigation
+            left=button_config.name,  # Self-referencing navigation
             right=button_config.name,
             up=button_config.name,
             down="button02" if button_config.name == "button01" else "button01",
