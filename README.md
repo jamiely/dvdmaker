@@ -6,7 +6,10 @@ Convert YouTube playlists into physical DVDs.
 
 - **Video Downloading**: Download YouTube playlists using yt-dlp with intelligent caching
 - **Video Processing**: Convert videos to DVD-compatible format using ffmpeg with advanced car DVD player compatibility
-- **DVD Authoring**: Create DVD structure with single title and multiple chapters (one per video)
+- **DVD Authoring**: Create DVD structure with interactive menus and DVDStyler-compatible autoplay functionality
+- **Car DVD Compatibility**: Confirmed working on Honda Odyssey 2016 and other car DVD players with automatic playback
+- **Interactive DVD Menus**: DVDStyler-compatible "Play all" button with visual feedback (normal, highlight, select states)
+- **Clean ISO Generation**: Professional ISOs containing only AUDIO_TS/VIDEO_TS directories (no build artifacts)
 - **Smart Caching**: Intelligent file caching to avoid redundant operations with comprehensive cleanup tools
 - **Filename Normalization**: ASCII filename normalization for DVD compatibility
 - **Progress Tracking**: Real-time progress reporting for all operations
@@ -16,6 +19,7 @@ Convert YouTube playlists into physical DVDs.
 - **DVD Capacity Management**: Automatically excludes videos when playlist exceeds DVD capacity with detailed warnings
 - **Comprehensive Metrics**: Reports total processing time, file sizes, and video durations in human-readable format
 - **Platform-specific Instructions**: Provides tailored tool installation instructions based on detected platform
+- **Build Artifact Management**: All temporary files and build artifacts organized in cache directories
 
 ## Requirements
 
@@ -23,6 +27,7 @@ Convert YouTube playlists into physical DVDs.
 - ffmpeg (auto-downloaded)
 - yt-dlp (auto-downloaded)
 - dvdauthor (system installation required)
+- spumux (included with dvdauthor package - for interactive DVD menus)
 
 ## Installation
 
@@ -113,7 +118,7 @@ python -m dvdmaker --clean all          # Clean all cache types
 #### DVD Options
 - `--menu-title`: Custom DVD menu title (default: playlist title)
 - `--no-iso`: Skip ISO image generation (ISO creation is enabled by default)
-- `--autoplay`: Enable DVD autoplay (automatically start playing videos on insertion)
+- `--autoplay`: Enable DVD autoplay functionality with DVDStyler-compatible "Play all" button (car DVD player compatible)
 
 #### Cache Options
 - `--force-download`: Force re-download all video files and refresh playlist data, even if cached
@@ -173,21 +178,25 @@ Technical specifications:
 
 ### DVD Authoring
 
-Creates complete DVD structures using dvdauthor:
+Creates complete DVD structures using dvdauthor with DVDStyler-compatible menus:
 
 - **DVD Structure Creation**: Generates VIDEO_TS directory structure with proper IFO/BUP/VOB files
 - **Chapter Organization**: Combines multiple videos into a single title with sequential chapters (maintains playlist order)
-- **Menu Generation**: Creates interactive DVD menus with chapter navigation
-- **Capacity Management**: Automatically excludes videos when content exceeds standard DVD capacity (4.7GB) with detailed warnings including video names and YouTube URLs
+- **Interactive Menu System**: DVDStyler-compatible "Play all" button with visual feedback states (normal, highlight, select)
+- **Car DVD Player Compatibility**: Confirmed working autoplay functionality on Honda Odyssey 2016 and other car players
+- **Professional ISO Output**: Clean ISOs containing only AUDIO_TS/VIDEO_TS directories (no build artifacts)
+- **Capacity Management**: Automatically excludes videos when content exceeds standard DVD capacity (4.7GB) with detailed warnings
 - **Partial Success**: Creates DVDs with successfully processed videos even if some conversions fail
-- **ISO Generation**: Optional ISO image creation for burning or virtual drive mounting
+- **ISO Generation**: Optional professional-quality ISO image creation for burning or virtual drive mounting
 - **Structure Validation**: Validates completed DVD structure for compatibility
 
 Technical specifications:
 - **DVD Format**: Single-layer DVD structure (4.7GB capacity)
 - **Title Structure**: Single title with multiple chapters (sequential playlist videos)
-- **Menu System**: Simple chapter selection menu with thumbnail previews
-- **Compatibility**: Playable on standard DVD players and software
+- **Menu System**: DVDStyler-compatible autoplay menu with spumux-generated button overlays
+- **Autoplay Magic**: `g0=1;jump title 1;` navigation command enables automatic playback
+- **Button Positioning**: DVDStyler exact coordinates (120,286)-(218,310) for maximum car compatibility
+- **Compatibility**: Playable on standard DVD players, car DVD systems, and software players
 
 ### Cache Management & Cleanup
 
