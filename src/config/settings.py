@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     aspect_ratio: str = Field(default="16:9")
     car_dvd_compatibility: bool = Field(default=True)
     autoplay: bool = Field(default=True)
+    chapter_interval_minutes: Optional[int] = Field(default=None)
+    ai_titles: bool = Field(default=True)
 
     # Cache settings
     force_download: bool = Field(default=False)
@@ -174,6 +176,14 @@ class Settings(BaseSettings):
         valid_ratios = ["4:3", "16:9"]
         if v not in valid_ratios:
             raise ValueError(f"Aspect ratio must be one of: {', '.join(valid_ratios)}")
+        return v
+
+    @field_validator("chapter_interval_minutes")
+    @classmethod
+    def validate_chapter_interval_minutes(cls, v: Optional[int]) -> Optional[int]:
+        """Keep automatic chapter intervals within a practical DVD range."""
+        if v is not None and not 1 <= v <= 120:
+            raise ValueError("Chapter interval must be between 1 and 120 minutes")
         return v
 
     @field_validator("cache_dir", "output_dir", "temp_dir", "bin_dir", "log_dir")

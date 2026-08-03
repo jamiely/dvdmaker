@@ -656,7 +656,9 @@ class ToolManager(BaseService):
         self.logger.warning(f"Could not find {tool_name} binary in extracted files")
         return None
 
-    def check_tools(self, use_cache: bool = True) -> Dict[str, Dict[str, Any]]:
+    def check_tools(
+        self, use_cache: bool = True, require_ytdlp: bool = True
+    ) -> Dict[str, Dict[str, Any]]:
         """Check the status of all required tools.
 
         Args:
@@ -675,7 +677,9 @@ class ToolManager(BaseService):
         tools_status = {}
 
         # Base required tools
-        required_tools = ["ffmpeg", "yt-dlp", "dvdauthor", "spumux"]
+        required_tools = ["ffmpeg", "dvdauthor", "spumux"]
+        if require_ytdlp:
+            required_tools.insert(1, "yt-dlp")
 
         # Add ISO creation tools if ISO generation is enabled
         if self.settings.generate_iso:
@@ -737,7 +741,9 @@ class ToolManager(BaseService):
         self.logger.debug("Invalidating tools status cache")
         self._tools_status_cache = None
 
-    def ensure_tools_available(self) -> Tuple[bool, List[str]]:
+    def ensure_tools_available(
+        self, require_ytdlp: bool = True
+    ) -> Tuple[bool, List[str]]:
         """Ensure all required tools are available.
 
         Returns:
@@ -745,7 +751,12 @@ class ToolManager(BaseService):
         """
         self.logger.debug("Ensuring all required tools are available")
 
-        tools_status = self.check_tools(use_cache=False)  # Force fresh check
+        if require_ytdlp:
+            tools_status = self.check_tools(use_cache=False)  # Force fresh check
+        else:
+            tools_status = self.check_tools(
+                use_cache=False, require_ytdlp=False
+            )  # Force fresh check
         missing_tools: List[str] = []
         needs_recheck = False
 

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from ..utils.logging import get_logger
 from ..utils.time_format import format_duration_human_readable
@@ -64,6 +64,7 @@ class VideoFile:
     file_size: int  # Size in bytes
     checksum: str  # SHA-256 checksum for integrity verification
     format: str  # File format (e.g., "mp4", "webm", "mkv")
+    stream_details: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         """Validate video file after initialization."""

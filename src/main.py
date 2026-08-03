@@ -2,11 +2,12 @@
 """DVD Maker CLI - Main entry point for the DVD Maker application.
 
 This script orchestrates the complete workflow of converting YouTube playlists
-into physical DVDs by downloading videos, processing them for DVD compatibility,
-and authoring a complete DVD structure.
+or local videos into physical DVDs, processing them for DVD compatibility, and
+authoring a complete DVD structure.
 """
 
 import argparse
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from .services.cleanup import CleanupManager
 from .services.converter import VideoConverter, VideoConverterError
 from .services.downloader import VideoDownloader, YtDlpError
 from .services.dvd_author import DVDAuthor, DVDAuthorError
+from .services.local_media import LocalMediaError, load_local_media
 from .services.spumux_service import SpumuxService
 from .services.tool_manager import ToolManager, ToolManagerError
 from .utils.capacity import log_excluded_videos, select_videos_for_dvd_capacity
@@ -29,13 +31,15 @@ def create_argument_parser() -> argparse.ArgumentParser:
     """Create and configure the argument parser."""
     parser = argparse.ArgumentParser(
         prog="dvdmaker",
-        description="Convert YouTube playlists into physical DVDs",
+        description="Convert YouTube playlists or local videos into physical DVDs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   %(prog)s --playlist-url "https://www.youtube.com/playlist?list=PLxxx"
   %(prog)s --playlist-url "PLxxx" --output-dir ./my-dvd
   %(prog)s --playlist-url "PLxxx" --iso --menu-title "My Collection"
+  %(prog)s --input ./movie.mp4 --chapter-interval-minutes 10
+  %(prog)s --input ./part1.mkv --input ./more-videos --no-ai-titles
         """,
     )
 
@@ -44,6 +48,13 @@ Examples:
     operation_group.add_argument(
         "--playlist-url",
         help="YouTube playlist URL or playlist ID",
+    )
+    operation_group.add_argument(
+        "--input",
+        action="append",
+        type=Path,
+        metavar="PATH",
+        help="Local video file or directory (repeat for more inputs)",
     )
     operation_group.add_argument(
         "--clean",
@@ -80,7 +91,7 @@ Examples:
     # DVD options
     parser.add_argument(
         "--menu-title",
-        help="Custom DVD menu title (default: playlist title)",
+        help="Custom DVD menu title (default: playlist/local source title)",
     )
     parser.add_argument(
         "--video-format",
@@ -104,6 +115,18 @@ Examples:
         "--autoplay",
         action="store_true",
         help="Enable DVD autoplay (automatically start playing videos on insertion)",
+    )
+    parser.add_argument(
+        "--chapter-interval-minutes",
+        type=int,
+        metavar="MINUTES",
+        help="Add chapter markers every 1-120 minutes within each source",
+    )
+    parser.add_argument(
+        "--no-ai-titles",
+        action="store_true",
+        default=None,
+        help="Use local filename stems without Codex title cleanup",
     )
 
     # Cache behavior options
@@ -180,10 +203,14 @@ def validate_arguments(args: argparse.Namespace) -> None:
             "Cannot use both --use-system-tools and --download-tools flags"
         )
 
-    # Validate playlist URL format (only when not using --clean)
-    if not hasattr(args, "clean") or not args.clean:
-        if not args.playlist_url:
-            raise ValueError("Playlist URL is required")
+    chapter_interval = getattr(args, "chapter_interval_minutes", None)
+    if chapter_interval is not None and not 1 <= chapter_interval <= 120:
+        raise ValueError("Chapter interval must be between 1 and 120 minutes")
+
+    # Validate playlist URL format when playlist mode is selected.
+    if not getattr(args, "clean", None) and not getattr(args, "input", None):
+        if not getattr(args, "playlist_url", None):
+            raise ValueError("Playlist URL is required (or provide local --input)")
 
         # Basic URL/ID validation
         playlist_input = args.playlist_url.strip()
@@ -225,6 +252,10 @@ def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Se
         updates["generate_iso"] = False
     if args.autoplay:
         updates["autoplay"] = True
+    if getattr(args, "chapter_interval_minutes", None) is not None:
+        updates["chapter_interval_minutes"] = args.chapter_interval_minutes
+    if getattr(args, "no_ai_titles", None):
+        updates["ai_titles"] = False
 
     # Cache settings
     if args.force_download:
@@ -293,7 +324,7 @@ def create_progress_callback(
     return simple_callback
 
 
-def validate_tools(tool_manager: ToolManager) -> bool:
+def validate_tools(tool_manager: ToolManager, require_ytdlp: bool = True) -> bool:
     """Validate that all required tools are available."""
     logger = get_logger(__name__)
 
@@ -301,16 +332,23 @@ def validate_tools(tool_manager: ToolManager) -> bool:
         logger.debug("Validating required tools...")
 
         try:
-            # Check for yt-dlp updates first (before ensuring tools are available)
-            update_success = tool_manager.check_and_update_ytdlp()
-            if update_success:
-                logger.debug("yt-dlp update check completed successfully")
-            else:
-                logger.warning(
-                    "yt-dlp update check failed, but continuing with existing version"
-                )
+            if require_ytdlp:
+                # Playlist mode alone needs yt-dlp.
+                update_success = tool_manager.check_and_update_ytdlp()
+                if update_success:
+                    logger.debug("yt-dlp update check completed successfully")
+                else:
+                    logger.warning(
+                        "yt-dlp update check failed, but continuing with "
+                        "existing version"
+                    )
 
-            tools_available, missing_tools = tool_manager.ensure_tools_available()
+            if require_ytdlp:
+                tools_available, missing_tools = tool_manager.ensure_tools_available()
+            else:
+                tools_available, missing_tools = tool_manager.ensure_tools_available(
+                    require_ytdlp=False
+                )
 
             if not tools_available:
                 logger.error(f"Missing required tools: {', '.join(missing_tools)}")
@@ -459,10 +497,18 @@ def main() -> int:
             # Handle cleanup operation
             return perform_cleanup(args.clean, settings)
 
+        local_inputs = getattr(args, "input", None)
+
         # DVD creation operation
-        with operation_context("dvd_creation", playlist_url=args.playlist_url):
+        with operation_context(
+            "dvd_creation",
+            input_mode="local" if local_inputs else "playlist",
+        ):
             start_time = time.time()
-            logger.info(f"Starting DVD creation for playlist: {args.playlist_url}")
+            if local_inputs:
+                logger.info("Starting DVD creation from local media")
+            else:
+                logger.info("Starting DVD creation for playlist: %s", args.playlist_url)
             logger.debug(f"Output directory: {settings.output_dir}")
 
             # Create necessary directories
@@ -484,17 +530,16 @@ def main() -> int:
             )
 
             # Validate tools first
-            if not validate_tools(tool_manager):
+            tools_valid = (
+                validate_tools(tool_manager, require_ytdlp=False)
+                if local_inputs
+                else validate_tools(tool_manager)
+            )
+            if not tools_valid:
                 logger.error("Tool validation failed - cannot proceed")
                 return 1
 
             # Initialize remaining services
-            downloader = VideoDownloader(
-                settings=settings,
-                cache_manager=cache_manager,
-                tool_manager=tool_manager,
-            )
-
             converter = VideoConverter(
                 settings=settings,
                 tool_manager=tool_manager,
@@ -516,33 +561,55 @@ def main() -> int:
                 progress_callback=progress_callback,
             )
 
-            # Execute main workflow
-            logger.info("Step 1: Downloading playlist...")
-            with operation_context("playlist_download"):
-                playlist = downloader.download_playlist(
-                    args.playlist_url, progress_callback
+            # Execute source-specific first step.
+            if local_inputs:
+                logger.info("Step 1: Validating local media...")
+                with operation_context("local_media_validation"):
+                    local_media = load_local_media(
+                        local_inputs,
+                        tool_manager,
+                        settings.cache_dir,
+                        ai_titles=settings.ai_titles,
+                    )
+                    video_files = local_media.videos
+                    default_menu_title = local_media.default_menu_title
+                    identity = "".join(video.checksum for video in video_files)
+                    source_id = (
+                        f"local-{hashlib.sha256(identity.encode()).hexdigest()[:12]}"
+                    )
+                    logger.info("Validated %d local videos", len(video_files))
+            else:
+                downloader = VideoDownloader(
+                    settings=settings,
+                    cache_manager=cache_manager,
+                    tool_manager=tool_manager,
                 )
+                logger.info("Step 1: Downloading playlist...")
+                with operation_context("playlist_download"):
+                    playlist = downloader.download_playlist(
+                        args.playlist_url, progress_callback
+                    )
 
-                if not playlist.get_available_videos():
-                    logger.error("No videos available for download")
-                    return 1
+                    if not playlist.get_available_videos():
+                        logger.error("No videos available for download")
+                        return 1
 
-                available_count = len(playlist.get_available_videos())
-                total_duration = playlist.total_duration_human_readable
-                logger.info(
-                    f"Downloaded {available_count} videos successfully "
-                    f"(total duration: {total_duration})"
-                )
+                    available_count = len(playlist.get_available_videos())
+                    total_duration = playlist.total_duration_human_readable
+                    logger.info(
+                        f"Downloaded {available_count} videos successfully "
+                        f"(total duration: {total_duration})"
+                    )
+                    video_files = []
+                    for video in playlist.get_available_videos():
+                        cached_file = cache_manager.get_cached_download(video.video_id)
+                        if cached_file:
+                            video_files.append(cached_file)
+                    default_menu_title = playlist.metadata.title
+                    source_id = playlist.metadata.playlist_id
 
             logger.info("Step 2: Converting videos to DVD format...")
             with operation_context("video_conversion"):
-                # Get downloaded video files from cache
-                video_files = []
-                for video in playlist.get_available_videos():
-                    cached_file = cache_manager.get_cached_download(video.video_id)
-                    if cached_file:
-                        video_files.append(cached_file)
-
                 if not video_files:
                     logger.error("No video files available for conversion")
                     return 1
@@ -583,13 +650,13 @@ def main() -> int:
 
             logger.info("Step 3: Creating DVD structure...")
             with operation_context("dvd_authoring"):
-                menu_title = settings.menu_title or playlist.metadata.title
+                menu_title = settings.menu_title or default_menu_title
 
                 authored_dvd = dvd_author.create_dvd_structure(
                     converted_videos=final_videos,
                     menu_title=menu_title,
                     output_dir=settings.output_dir,
-                    playlist_id=playlist.metadata.playlist_id,
+                    playlist_id=source_id,
                     create_iso=settings.generate_iso,
                 )
 
@@ -657,7 +724,7 @@ def main() -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    except (YtDlpError, VideoConverterError, DVDAuthorError) as e:
+    except (YtDlpError, LocalMediaError, VideoConverterError, DVDAuthorError) as e:
         logger = get_logger(__name__)
         logger.error(f"Operation failed: {e}")
         return 1

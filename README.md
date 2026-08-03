@@ -1,10 +1,12 @@
 # DVD Maker
 
-Convert YouTube playlists into physical DVDs.
+Author physical DVDs from YouTube playlists or local video files.
 
 ## Features
 
 - **Video Downloading**: Download YouTube playlists using yt-dlp with intelligent caching
+- **Local Media**: Accept repeatable file and directory inputs without modifying the sources
+- **Automatic Chapters**: Add optional per-source interval markers for next/previous navigation
 - **Video Processing**: Convert videos to DVD-compatible format using ffmpeg with advanced car DVD player compatibility
 - **DVD Authoring**: Create DVD structure with interactive menus and DVDStyler-compatible autoplay functionality
 - **Car DVD Compatibility**: Confirmed working on Honda Odyssey 2016 and other car DVD players with automatic playback
@@ -25,9 +27,11 @@ Convert YouTube playlists into physical DVDs.
 
 - Python 3.10+
 - ffmpeg (auto-downloaded)
-- yt-dlp (auto-downloaded)
+- yt-dlp (auto-downloaded and required only for playlist input)
 - dvdauthor (system installation required)
 - spumux (included with dvdauthor package - for interactive DVD menus)
+- genisoimage or mkisofs (when ISO generation is enabled)
+- Codex CLI (optional; local title cleanup safely falls back to filename stems)
 
 ## Installation
 
@@ -54,13 +58,13 @@ For development, also install development dependencies:
 pip install -r requirements-dev.txt
 ```
 
-4. Install dvdauthor:
+4. Install the platform media and authoring prerequisites:
 ```bash
 # macOS
-brew install dvdauthor
+brew install ffmpeg dvdauthor dvdrtools
 
 # Ubuntu/Debian
-sudo apt install dvdauthor
+sudo apt install ffmpeg dvdauthor genisoimage lsdvd
 
 # RHEL/CentOS
 sudo yum install dvdauthor
@@ -69,41 +73,68 @@ sudo yum install dvdauthor
 ## Usage
 
 ```bash
-python -m dvdmaker --playlist-url "https://www.youtube.com/playlist?list=..." [options]
+python -m src.main --playlist-url "https://www.youtube.com/playlist?list=..." [options]
 ```
 
 ### Examples
 
 Basic usage:
 ```bash
-python -m dvdmaker --playlist-url "https://www.youtube.com/playlist?list=PLxxx"
+python -m src.main --playlist-url "https://www.youtube.com/playlist?list=PLxxx"
 ```
 
 Custom output directory and DVD title:
 ```bash
-python -m dvdmaker --playlist-url "PLxxx" --output-dir ./my-dvd --menu-title "My Collection"
+python -m src.main --playlist-url "PLxxx" --output-dir ./my-dvd --menu-title "My Collection"
 ```
 
 PAL format with 4:3 aspect ratio:
 ```bash
-python -m dvdmaker --playlist-url "PLxxx" --video-format PAL --aspect-ratio "4:3"
+python -m src.main --playlist-url "PLxxx" --video-format PAL --aspect-ratio "4:3"
+```
+
+One local video with 10-minute chapter markers:
+```bash
+python -m src.main --input ./movie.mp4 --chapter-interval-minutes 10
+```
+
+Files and directories can be mixed and repeated. Directory expansion occurs at
+that exact argument position, is non-recursive, and uses case-insensitive natural
+filename order:
+```bash
+python -m src.main \
+  --input ./opening.mov \
+  --input ./episodes \
+  --input ./bonus.mkv
+```
+
+Use filename stems without optional AI cleanup:
+```bash
+python -m src.main --input ./videos --no-ai-titles
 ```
 
 Skip ISO generation:
 ```bash
-python -m dvdmaker --playlist-url "PLxxx" --no-iso
+python -m src.main --playlist-url "PLxxx" --no-iso
 ```
 
 Clean cache files:
 ```bash
-python -m dvdmaker --clean conversions  # Clean converted video files
-python -m dvdmaker --clean all          # Clean all cache types
+python -m src.main --clean conversions  # Clean converted video files
+python -m src.main --clean all          # Clean all cache types
 ```
 
 ### Options
 
-#### Required
+#### Operation Mode
 - `--playlist-url`: YouTube playlist URL or playlist ID
+- `--input`: Local file or directory; repeat the flag for additional inputs
+- `--clean`: Clean cached/output data by type
+
+These modes are mutually exclusive. Directories discover `.mp4`, `.mov`, `.mkv`,
+`.avi`, `.webm`, `.m4v`, `.mpg`, `.mpeg`, `.ts`, and `.m2ts` files. Explicit
+files with other extensions are accepted when `ffprobe` recognizes them. Paths
+are resolved and deduplicated while preserving their first occurrence.
 
 #### Directory Options
 - `--output-dir`: Specify output directory (default: ./output)
@@ -114,11 +145,13 @@ python -m dvdmaker --clean all          # Clean all cache types
 - `--quality`: Video quality preference (default: best)
 - `--video-format`: DVD video format - NTSC (29.97fps, 720x480) or PAL (25fps, 720x576) (default: NTSC)
 - `--aspect-ratio`: DVD aspect ratio - 4:3 (standard) or 16:9 (widescreen) (default: 16:9)
+- `--no-ai-titles`: Disable conservative Codex title cleanup for local files
 
 #### DVD Options
-- `--menu-title`: Custom DVD menu title (default: playlist title)
+- `--menu-title`: Custom DVD menu title (default: playlist/local source title)
 - `--no-iso`: Skip ISO image generation (ISO creation is enabled by default)
 - `--autoplay`: Enable DVD autoplay functionality with DVDStyler-compatible "Play all" button (car DVD player compatible)
+- `--chapter-interval-minutes`: Add markers every 1-120 minutes within each source
 
 #### Cache Options
 - `--force-download`: Force re-download all video files and refresh playlist data, even if cached
@@ -166,14 +199,15 @@ Converts downloaded videos to DVD-compatible formats using ffmpeg:
 - **Car DVD Compatibility**: Strict DVD-Video specification compliance with interlaced encoding for maximum car player compatibility
 - **Thumbnail Generation**: Creates DVD menu thumbnails from video content
 - **Quality Validation**: Verifies converted files meet DVD specifications
-- **Intelligent Caching**: Caches converted files to avoid redundant processing
+- **Compatible MPEG Reuse**: Reuses an already compliant MPEG-2 program stream while still generating its thumbnail
+- **Intelligent Caching**: Validates the source checksum and complete conversion-profile fingerprint. Legacy entries are converted once; changing a title or chapter interval does not re-encode media.
 
 Technical specifications:
 - **Video**: MPEG-2 encoding with standard bitrate (6Mbps) or conservative car-compatible bitrate (3.5Mbps)
 - **Audio**: AC-3 encoding at 448kbps (standard) or 192kbps (car-compatible), stereo, 48kHz sample rate
 - **Resolution**: 720x480 (NTSC) or 720x576 (PAL) with proper interlaced encoding for car players
 - **Aspect Ratio**: 16:9 widescreen (default) or 4:3 standard format with correct sample aspect ratio
-- **Frame Rate**: 29.97fps (NTSC) or 25fps (PAL) with top-field-first interlaced encoding
+- **Frame Rate**: Exact 30000/1001fps (NTSC) or 25fps (PAL) timing with top-field-first interlaced encoding
 - **Car Compatibility**: Conservative GOP size (12), no B-frames, and strict DVD-Video spec compliance
 
 ### DVD Authoring
@@ -182,6 +216,7 @@ Creates complete DVD structures using dvdauthor with DVDStyler-compatible menus:
 
 - **DVD Structure Creation**: Generates VIDEO_TS directory structure with proper IFO/BUP/VOB files
 - **Chapter Organization**: Combines multiple videos into a single title with sequential chapters (maintains playlist order)
+- **Interval Navigation**: Each source independently receives markers at 0, interval, 2 × interval, and so on, strictly before its converted duration
 - **Interactive Menu System**: DVDStyler-compatible "Play all" button with visual feedback states (normal, highlight, select)
 - **Car DVD Player Compatibility**: Confirmed working autoplay functionality on Honda Odyssey 2016 and other car players
 - **Professional ISO Output**: Clean ISOs containing only AUDIO_TS/VIDEO_TS directories (no build artifacts)
@@ -192,11 +227,32 @@ Creates complete DVD structures using dvdauthor with DVDStyler-compatible menus:
 
 Technical specifications:
 - **DVD Format**: Single-layer DVD structure (4.7GB capacity)
-- **Title Structure**: Single title with multiple chapters (sequential playlist videos)
+- **Title Structure**: Single title with sequential source videos and chapter markers
 - **Menu System**: DVDStyler-compatible autoplay menu with spumux-generated button overlays
 - **Autoplay Magic**: `g0=1;jump title 1;` navigation command enables automatic playback
 - **Button Positioning**: DVDStyler exact coordinates (120,286)-(218,310) for maximum car compatibility
 - **Compatibility**: Playable on standard DVD players, car DVD systems, and software players
+
+Interval markers are available through a player's next/previous chapter controls.
+The visual source-selection menu remains source-oriented and limited to six source
+buttons; it does not add a button for every interval marker. Omitting the option
+continues to emit the legacy `chapters="0:00"` marker. Changing the interval only
+requires re-authoring `VIDEO_TS` and the ISO.
+
+### Local title privacy and defaults
+
+For local input, title cleanup is enabled by default and uses one ephemeral
+`codex exec` request with the cost-oriented `gpt-5.6-luna` model. Only basenames
+are sent—never full paths or media contents—and the request asks only for
+conservative separator/tag cleanup. CLI absence, authentication errors, timeouts,
+invalid output, and all other inference failures produce one warning and fall
+back to filename stems without stopping DVD creation. Successful results are
+cached by content hash, model, and prompt version.
+
+`--menu-title` always wins. Otherwise one local video uses its inferred/fallback
+title, multiple files from one directory use that directory name, and mixed
+locations use `Local Videos`. `DVDMAKER_AI_TITLES` and
+`DVDMAKER_CHAPTER_INTERVAL_MINUTES` provide environment-level controls.
 
 ### Cache Management & Cleanup
 

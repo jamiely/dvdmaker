@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="dvdmaker",
     version="0.1.0",
-    description="Convert YouTube playlists to DVDs",
+    description="Author DVDs from YouTube playlists or local videos",
     author="DVD Maker",
     author_email="dvdmaker@example.com",
     packages=find_packages(where="src"),
@@ -13,6 +13,8 @@ setup(
         "unidecode>=1.3.0",
         "requests>=2.31.0",
         "pydantic>=2.0.0",
+        "pydantic-settings>=2.0.0",
+        "Pillow>=9.0.0",
     ],
     extras_require={
         "dev": [
