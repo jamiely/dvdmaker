@@ -296,8 +296,8 @@ class TestVideoConverter:
         assert str(output_path) in cmd
         assert "-c:v" in cmd
         assert "mpeg2video" in cmd
-        assert "-s" in cmd
-        assert "720x480" in cmd
+        assert "scale=720:480:force_original_aspect_ratio=decrease" in " ".join(cmd)
+        assert "pad=720:480:(ow-iw)/2:(oh-ih)/2" in " ".join(cmd)
 
     def test_build_thumbnail_command(self, video_converter, tmp_path):
         """Test building thumbnail command."""
@@ -850,6 +850,10 @@ class TestVideoConverterCacheHandling:
                 "video_codec": "mpeg2video",
                 "audio_codec": "ac3",
                 "thumbnail_file": None,
+                "source_checksum": sample_video_file.checksum,
+                "profile_fingerprint": (
+                    video_converter._conversion_profile_fingerprint()
+                ),
             }
         }
         video_converter._save_converted_metadata(metadata)
@@ -968,7 +972,11 @@ class TestVideoConverterCarDVDCompatibility:
         # Should include strict DVD-Video spec compliance flags
         assert "+ilme+ildct" in cmd  # Interlaced motion estimation and DCT
         assert "1" in cmd  # Top field first (-top 1)
-        assert "yadif=0:-1:0,setsar=32/27" in cmd  # Deinterlacing and SAR filter
+        assert any(
+            "bwdif=mode=send_frame:parity=auto:deint=interlaced" in value
+            and "setsar=32/27" in value
+            for value in cmd
+        )
 
         # Should NOT include incompatible flags
         assert "+aic" not in cmd  # Not DVD spec compliant

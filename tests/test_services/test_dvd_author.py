@@ -361,6 +361,8 @@ class TestDVDAuthor:
         # Should create ASCII-safe filename
         assert "test_video" in str(normalized_path)
         assert normalized_path.exists()
+        assert normalized_path.parent != unicode_video.parent
+        assert not (unicode_video.parent / "test_video.mpg").exists()
 
     @patch("subprocess.run")
     def test_run_dvdauthor_success(self, mock_subprocess, dvd_author, tmp_path):

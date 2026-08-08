@@ -1,7 +1,7 @@
 """DVD-related data models."""
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 
 from ..utils.logging import get_logger
 from ..utils.time_format import format_duration_human_readable
@@ -17,6 +17,7 @@ class DVDChapter:
     chapter_number: int
     video_file: VideoFile
     start_time: int  # Start time in concatenated video (seconds)
+    chapter_offsets: Tuple[int, ...] = (0,)
 
     def __post_init__(self) -> None:
         """Validate DVD chapter after initialization."""
@@ -37,6 +38,15 @@ class DVDChapter:
                 f"for chapter {self.chapter_number}"
             )
             raise ValueError("start_time must be non-negative")
+        if (
+            not self.chapter_offsets
+            or self.chapter_offsets[0] != 0
+            or any(offset < 0 for offset in self.chapter_offsets)
+            or tuple(sorted(set(self.chapter_offsets))) != self.chapter_offsets
+        ):
+            raise ValueError(
+                "chapter_offsets must start at zero and be unique and ascending"
+            )
 
         logger.debug(
             f"DVDChapter validated: Chapter {self.chapter_number} - "

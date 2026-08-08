@@ -49,6 +49,9 @@ class ConvertedVideoFile:
         resolution: str = "",
         video_codec: str = "",
         audio_codec: str = "",
+        source_checksum: str = "",
+        profile_fingerprint: str = "",
+        reused_source: bool = False,
     ):
         """Initialize converted video file.
 
@@ -72,6 +75,9 @@ class ConvertedVideoFile:
         self.resolution = resolution
         self.video_codec = video_codec
         self.audio_codec = audio_codec
+        self.source_checksum = source_checksum
+        self.profile_fingerprint = profile_fingerprint
+        self.reused_source = reused_source
 
     @property
     def exists(self) -> bool:
@@ -85,7 +91,7 @@ class ConvertedVideoFile:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        data = {
             "video_id": self.metadata.video_id,
             "video_file": str(self.video_file),
             "thumbnail_file": str(self.thumbnail_file) if self.thumbnail_file else None,
@@ -96,6 +102,13 @@ class ConvertedVideoFile:
             "video_codec": self.video_codec,
             "audio_codec": self.audio_codec,
         }
+        if self.source_checksum:
+            data["source_checksum"] = self.source_checksum
+        if self.profile_fingerprint:
+            data["profile_fingerprint"] = self.profile_fingerprint
+        if self.reused_source:
+            data["reused_source"] = True
+        return data
 
     @classmethod
     def from_dict(
@@ -114,6 +127,9 @@ class ConvertedVideoFile:
             resolution=data["resolution"],
             video_codec=data["video_codec"],
             audio_codec=data["audio_codec"],
+            source_checksum=data.get("source_checksum", ""),
+            profile_fingerprint=data.get("profile_fingerprint", ""),
+            reused_source=data.get("reused_source", False),
         )
 
 
@@ -132,12 +148,13 @@ class VideoConverter(BaseService):
     # DVD-compatible video specifications
     NTSC_RESOLUTION = "720x480"
     PAL_RESOLUTION = "720x576"
-    NTSC_FRAMERATE = "29.97"
+    NTSC_FRAMERATE = "30000/1001"
     PAL_FRAMERATE = "25"
     VIDEO_CODEC = "mpeg2video"
     AUDIO_CODEC = "ac3"
     AUDIO_BITRATE = "448k"
     VIDEO_BITRATE = "6000k"
+    CONVERSION_PROFILE_VERSION = "dvd-mpeg2-v2"
 
     def __init__(
         self,
@@ -313,6 +330,82 @@ class VideoConverter(BaseService):
             )
             return self.NTSC_RESOLUTION, self.NTSC_FRAMERATE
 
+    def _conversion_profile_fingerprint(self) -> str:
+        """Identify every setting that can change the encoded MPEG stream."""
+        profile = {
+            "version": self.CONVERSION_PROFILE_VERSION,
+            "video_format": str(self.settings.video_format).upper(),
+            "aspect_ratio": str(self.settings.aspect_ratio),
+            "car_dvd_compatibility": bool(self.settings.car_dvd_compatibility),
+            "video_codec": self.VIDEO_CODEC,
+            "audio_codec": self.AUDIO_CODEC,
+        }
+        serialized = json.dumps(profile, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _rate_matches(value: Any, expected: str) -> bool:
+        try:
+            numerator, denominator = str(value).split("/", 1)
+            actual = float(numerator) / float(denominator)
+            exp_numerator, exp_denominator = expected.split("/", 1)
+            target = float(exp_numerator) / float(exp_denominator)
+            return abs(actual - target) < 0.001
+        except (TypeError, ValueError, ZeroDivisionError):
+            return False
+
+    def _is_dvd_compatible(self, video_info: Dict[str, Any]) -> bool:
+        """Return whether a source can be safely authored without re-encoding."""
+        format_info = video_info.get("format", {})
+        format_names = set(str(format_info.get("format_name", "")).split(","))
+        if "mpeg" not in format_names:
+            return False
+        try:
+            if float(format_info.get("duration", 0)) <= 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+
+        video = next(
+            (
+                stream
+                for stream in video_info.get("streams", [])
+                if stream.get("codec_type") == "video"
+            ),
+            None,
+        )
+        audio = next(
+            (
+                stream
+                for stream in video_info.get("streams", [])
+                if stream.get("codec_type") == "audio"
+            ),
+            None,
+        )
+        if not video or not audio:
+            return False
+
+        resolution, framerate = self._determine_dvd_format(video_info)
+        width, height = (int(value) for value in resolution.split("x"))
+        if (
+            video.get("codec_name") != self.VIDEO_CODEC
+            or video.get("pix_fmt") != "yuv420p"
+            or video.get("width") != width
+            or video.get("height") != height
+            or not self._rate_matches(
+                video.get("avg_frame_rate") or video.get("r_frame_rate"), framerate
+            )
+        ):
+            return False
+
+        display_aspect = str(video.get("display_aspect_ratio", "")).replace("/", ":")
+        if display_aspect != self.settings.aspect_ratio:
+            return False
+        return (
+            audio.get("codec_name") == self.AUDIO_CODEC
+            and str(audio.get("sample_rate")) == "48000"
+        )
+
     def _build_conversion_command(
         self,
         input_path: Path,
@@ -332,129 +425,87 @@ class VideoConverter(BaseService):
             List of command arguments
         """
         ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
-
-        # Determine format-specific settings
         is_ntsc = "480" in resolution
+        sar = {
+            (True, "16:9"): "32/27",
+            (True, "4:3"): "8/9",
+            (False, "16:9"): "64/45",
+            (False, "4:3"): "16/15",
+        }[(is_ntsc, self.settings.aspect_ratio)]
+        width, height = resolution.split("x")
+        video_filter = (
+            "bwdif=mode=send_frame:parity=auto:deint=interlaced,"
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar={sar}"
+        )
+        car_profile = self.settings.car_dvd_compatibility
+        video_bitrate = "3500k" if car_profile else self.VIDEO_BITRATE
+        audio_bitrate = "192k" if car_profile else self.AUDIO_BITRATE
+        maxrate = "6000k" if car_profile else "8000k"
+        gop_size = "12" if car_profile else ("18" if is_ntsc else "15")
 
-        if self.settings.car_dvd_compatibility:
-            self.logger.debug("Using car DVD compatibility encoding settings")
-            # Conservative settings for maximum car DVD player compatibility
-            # Based on strict DVD-Video spec compliance for Honda Odyssey and similar
-            cmd = ffmpeg_cmd + [
-                "-i",
-                str(input_path),
-                "-c:v",
-                self.VIDEO_CODEC,
-                "-pix_fmt",
-                "yuv420p",  # Standard DVD pixel format
-                # Interlaced encoding (DVD spec assumes interlaced, top-field-first)
-                "-flags",
-                "+ilme+ildct",  # Interlaced motion estimation and DCT
-                "-top",
-                "1",  # Top field first
-                # Video bitrate settings
-                "-b:v",
-                "3500k",  # Conservative bitrate for car players
-                "-maxrate",
-                "6000k",  # Lower max rate for compatibility
-                "-minrate",
-                "3500k",  # Match average bitrate to avoid buffer under-runs
-                "-bufsize",
-                "1835008",  # DVD buffer size
-                "-s",
-                resolution,
-                "-r",
-                framerate,
-                # Aspect ratio handling - set both DAR and SAR for compatibility
-                "-aspect",
-                self.settings.aspect_ratio,
-                "-vf",
-                "yadif=0:-1:0,setsar=32/27",  # Deinterlace if needed + set SAR for 16:9
-                # GOP settings for car DVD compatibility
-                "-g",
-                "12",  # Shorter GOP for better seeking
-                "-bf",
-                "0",  # No B-frames for better compatibility
-                # Audio settings - AC-3 is more universally supported than PCM
-                "-c:a",
-                self.AUDIO_CODEC,  # Use AC-3 instead of PCM
-                "-b:a",
-                "192k",  # Standard AC-3 bitrate for DVD
-                "-ac",
-                "2",  # Stereo audio
-                "-ar",
-                "48000",  # 48kHz sample rate for DVD
-                # DVD multiplexing settings (simplified - let -f dvd handle details)
-                "-f",
-                "dvd",  # DVD format for proper multiplexing
-                "-y",  # Overwrite output file
-                str(output_path),
-            ]
-        else:
-            # Standard encoding with more advanced settings
-            gop_size = "15" if is_ntsc else "12"  # GOP size for NTSC/PAL
-
-            cmd = ffmpeg_cmd + [
-                "-i",
-                str(input_path),
-                "-c:v",
-                self.VIDEO_CODEC,
-                "-pix_fmt",
-                "yuv420p",  # Standard DVD pixel format
-                "-b:v",
-                self.VIDEO_BITRATE,
-                "-s",
-                resolution,
-                "-r",
-                framerate,
-                "-aspect",
-                self.settings.aspect_ratio,
-                # Advanced video encoding settings
-                "-flags",
-                "+ilme+ildct",  # Enable interlaced motion estimation and DCT
-                "-top",
-                "1",  # Top field first for interlaced content
-                "-g",
-                gop_size,  # GOP size (15 for NTSC, 12 for PAL)
-                "-bf",
-                "2",  # B-frames
-                "-flags2",
-                "+bpyramid",  # B-frame pyramid (standard mode only)
-                "-sc_threshold",
-                "40",  # Scene change threshold
-                "-colorspace",
-                "bt470bg" if not is_ntsc else "smpte170m",  # Color space for PAL/NTSC
-                "-color_primaries",
-                "bt470bg" if not is_ntsc else "smpte170m",
-                "-color_trc",
-                "gamma28" if not is_ntsc else "smpte170m",
-                # Audio settings
-                "-c:a",
-                self.AUDIO_CODEC,
-                "-b:a",
-                self.AUDIO_BITRATE,
-                "-ac",
-                "2",  # Stereo audio
-                "-ar",
-                "48000",  # 48kHz sample rate for DVD
-                # DVD multiplexing settings
-                "-f",
-                "dvd",  # DVD format for proper multiplexing
-                "-muxrate",
-                "10080000",  # DVD mux rate (10.08 Mbps)
-                "-maxrate",
-                "8000000",  # Lower max rate for better compatibility
-                "-minrate",
-                "0",  # Minimum video bitrate
-                "-bufsize",
-                "1835008",  # DVD buffer size
-                "-packetsize",
-                "2048",  # DVD packet size
-                "-muxpreload",
-                "0.2",  # Preload time for multiplexer
-                "-y",  # Overwrite output file
-                str(output_path),
-            ]
+        cmd = ffmpeg_cmd + [
+            "-fflags",
+            "+genpts",
+            "-i",
+            str(input_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0",
+            "-sn",
+            "-dn",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-c:v",
+            self.VIDEO_CODEC,
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            video_bitrate,
+            "-maxrate",
+            maxrate,
+            "-minrate",
+            "3500k" if car_profile else "0",
+            "-bufsize",
+            "1835008",
+            "-r",
+            framerate,
+            "-aspect",
+            self.settings.aspect_ratio,
+            "-vf",
+            video_filter,
+            "-flags",
+            "+ilme+ildct",
+            "-top",
+            "1",
+            "-g",
+            gop_size,
+            "-bf",
+            "0" if car_profile else "2",
+            "-c:a",
+            self.AUDIO_CODEC,
+            "-b:a",
+            audio_bitrate,
+            "-ac",
+            "2",
+            "-ar",
+            "48000",
+            "-af",
+            "aresample=async=1:first_pts=0",
+            "-f",
+            "dvd",
+            "-muxrate",
+            "10080000",
+            "-packetsize",
+            "2048",
+            "-muxpreload",
+            "0",
+            "-muxdelay",
+            "0.7",
+            "-y",
+            str(output_path),
+        ]
 
         self.logger.debug(f"Built conversion command: {' '.join(cmd)}")
         return cmd
@@ -480,6 +531,11 @@ class VideoConverter(BaseService):
         cmd = ffmpeg_cmd + [
             "-i",
             str(input_path),
+            "-map",
+            "0:v:0",
+            "-an",
+            "-sn",
+            "-dn",
             "-ss",
             str(timestamp),
             "-vframes",
@@ -579,7 +635,11 @@ class VideoConverter(BaseService):
             self.logger.error(f"{operation_name} failed with exception: {e}")
             raise ConversionError(f"{operation_name} failed: {e}")
 
-    def is_video_converted(self, video_metadata: VideoMetadata) -> bool:
+    def is_video_converted(
+        self,
+        video_metadata: VideoMetadata,
+        source_checksum: Optional[str] = None,
+    ) -> bool:
         """Check if a video has already been converted.
 
         Args:
@@ -596,6 +656,17 @@ class VideoConverter(BaseService):
             return False
 
         video_data = metadata[video_id]
+
+        # Real conversion lookups always supply the source identity. This makes
+        # legacy entries stale exactly once while preserving the metadata-only
+        # inspection API used by callers and older integrations.
+        if source_checksum is not None and (
+            video_data.get("source_checksum") != source_checksum
+            or video_data.get("profile_fingerprint")
+            != self._conversion_profile_fingerprint()
+        ):
+            self.logger.debug("Conversion identity changed for %s", video_id)
+            return False
         video_file = Path(video_data["video_file"])
 
         # Check if file exists and has correct size/checksum
@@ -617,7 +688,7 @@ class VideoConverter(BaseService):
         return True
 
     def get_converted_video(
-        self, video_metadata: VideoMetadata
+        self, video_metadata: VideoMetadata, source_checksum: Optional[str] = None
     ) -> Optional[ConvertedVideoFile]:
         """Get converted video file from cache.
 
@@ -627,7 +698,7 @@ class VideoConverter(BaseService):
         Returns:
             ConvertedVideoFile if available, None otherwise
         """
-        if not self.is_video_converted(video_metadata):
+        if not self.is_video_converted(video_metadata, source_checksum):
             return None
 
         metadata = self._load_converted_metadata()
@@ -656,11 +727,15 @@ class VideoConverter(BaseService):
         self.logger.debug(f"Starting conversion of video {video_id}")
 
         # Check cache first
-        if not force_convert and self.is_video_converted(video_file.metadata):
+        if not force_convert and self.is_video_converted(
+            video_file.metadata, video_file.checksum
+        ):
             self.logger.debug(
                 f"Video {video_id} already converted, using cached version"
             )
-            converted = self.get_converted_video(video_file.metadata)
+            converted = self.get_converted_video(
+                video_file.metadata, video_file.checksum
+            )
             if converted:
                 return converted
 
@@ -682,6 +757,7 @@ class VideoConverter(BaseService):
 
         converted_file = output_dir / f"{video_id}_dvd.mpg"
         thumbnail_file = output_dir / f"{video_id}_thumb.jpg"
+        reuse_source = self._is_dvd_compatible(video_info)
 
         # Create temporary files for atomic operations
         with tempfile.NamedTemporaryFile(suffix=".mpg", delete=False) as temp_video:
@@ -691,19 +767,24 @@ class VideoConverter(BaseService):
             temp_thumb_path = Path(temp_thumb.name)
 
         try:
-            # Convert video
-            conversion_cmd = self._build_conversion_command(
-                video_file.file_path,
-                temp_video_path,
-                resolution,
-                framerate,
-            )
+            if reuse_source:
+                self.logger.info(
+                    "Source %s is already DVD compliant; reusing it", video_id
+                )
+                converted_file = video_file.file_path
+            else:
+                conversion_cmd = self._build_conversion_command(
+                    video_file.file_path,
+                    temp_video_path,
+                    resolution,
+                    framerate,
+                )
 
-            self._run_conversion_command(
-                conversion_cmd,
-                f"Converting {video_id}",
-                video_file.metadata.duration,
-            )
+                self._run_conversion_command(
+                    conversion_cmd,
+                    f"Converting {video_id}",
+                    video_file.metadata.duration,
+                )
 
             # Generate thumbnail
             thumbnail_cmd = self._build_thumbnail_command(
@@ -718,7 +799,10 @@ class VideoConverter(BaseService):
             )
 
             # Move files to final location atomically
-            temp_video_path.rename(converted_file)
+            if not reuse_source:
+                temp_video_path.rename(converted_file)
+            elif temp_video_path.exists():
+                temp_video_path.unlink()
             temp_thumb_path.rename(thumbnail_file)
 
             # Calculate metadata for converted file
@@ -759,6 +843,9 @@ class VideoConverter(BaseService):
                 ),
                 video_codec=video_stream.get("codec_name", ""),
                 audio_codec=audio_stream.get("codec_name", ""),
+                source_checksum=video_file.checksum,
+                profile_fingerprint=self._conversion_profile_fingerprint(),
+                reused_source=reuse_source,
             )
 
             # Update metadata cache
@@ -781,7 +868,10 @@ class VideoConverter(BaseService):
                     temp_file.unlink()
 
             # Clean up partial output files
-            for output_file in [converted_file, thumbnail_file]:
+            output_files = [thumbnail_file]
+            if not reuse_source:
+                output_files.append(converted_file)
+            for output_file in output_files:
                 if output_file.exists():
                     output_file.unlink()
 
@@ -910,7 +1000,7 @@ class VideoConverter(BaseService):
                 thumbnail_file = data.get("thumbnail_file")
 
                 # Remove files
-                if video_file.exists():
+                if video_file.exists() and not data.get("reused_source", False):
                     video_file.unlink()
                     self.logger.debug(f"Removed converted video: {video_file}")
 
@@ -921,7 +1011,11 @@ class VideoConverter(BaseService):
                         self.logger.debug(f"Removed thumbnail: {thumb_path}")
 
                 # Remove directory if empty
-                if video_file.parent.exists() and not any(video_file.parent.iterdir()):
+                if (
+                    not data.get("reused_source", False)
+                    and video_file.parent.exists()
+                    and not any(video_file.parent.iterdir())
+                ):
                     video_file.parent.rmdir()
 
                 # Remove from metadata

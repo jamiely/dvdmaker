@@ -8,6 +8,7 @@ This module handles creating DVD structures using dvdauthor, including:
 - DVD capacity validation and warnings
 """
 
+import hashlib
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -28,6 +29,23 @@ from .base import BaseService
 
 # Progress callback type
 ProgressCallback = Callable[[str, float], None]
+
+
+def generate_chapter_offsets(
+    duration_seconds: int, interval_minutes: Optional[int]
+) -> Tuple[int, ...]:
+    """Generate independent, strictly in-source chapter offsets."""
+    if not interval_minutes or duration_seconds <= 0:
+        return (0,)
+    interval_seconds = interval_minutes * 60
+    return tuple(range(0, duration_seconds, interval_seconds)) or (0,)
+
+
+def format_chapter_timestamp(seconds: int) -> str:
+    """Format a deterministic dvdauthor chapter timestamp."""
+    hours, remainder = divmod(max(0, seconds), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}"
 
 
 class DVDAuthorError(DVDMakerError):
@@ -257,6 +275,12 @@ class DVDAuthor(BaseService):
 
         # Create DVD chapters from converted videos
         chapters = self._create_chapters(converted_videos)
+        marker_count = sum(len(chapter.chapter_offsets) for chapter in chapters)
+        self.logger.info(
+            "Prepared %d source videos with %d authored DVD chapter markers",
+            len(chapters),
+            marker_count,
+        )
         total_size = sum(video.file_size for video in converted_videos)
 
         # Check DVD capacity
@@ -328,7 +352,7 @@ class DVDAuthor(BaseService):
             self._report_progress("DVD creation complete", 1.0)
             self.logger.info(
                 f"DVD creation completed successfully: {authored_dvd.size_gb:.2f}GB, "
-                f"{len(chapters)} chapters"
+                f"{len(chapters)} sources, {marker_count} chapter markers"
             )
 
             return authored_dvd
@@ -380,6 +404,9 @@ class DVDAuthor(BaseService):
                 chapter_number=i,
                 video_file=video_file,
                 start_time=current_time,
+                chapter_offsets=generate_chapter_offsets(
+                    video.duration, self.settings.chapter_interval_minutes
+                ),
             )
 
             chapters.append(chapter)
@@ -782,6 +809,11 @@ class DVDAuthor(BaseService):
 
             # Create chapter navigation buttons (limit to 6 like DVDStyler's first menu)
             max_buttons = min(len(ordered_chapters), 6)
+            source_chapter_targets: List[int] = []
+            next_global_chapter = 1
+            for source_chapter in ordered_chapters:
+                source_chapter_targets.append(next_global_chapter)
+                next_global_chapter += len(source_chapter.chapter_offsets)
             for i in range(max_buttons):
                 button_name = f"button{i+1:02d}"
                 if i == 0:
@@ -789,7 +821,7 @@ class DVDAuthor(BaseService):
                     button_text = "g0=0;jump title 1;"
                 else:
                     # Other buttons jump to specific chapters
-                    chapter_num = i + 1
+                    chapter_num = source_chapter_targets[i]
                     button_text = f"g0=0;jump title 1 chapter {chapter_num};"
                 ET.SubElement(menu_pgc, "button", name=button_name).text = button_text
 
@@ -828,11 +860,23 @@ class DVDAuthor(BaseService):
 
         title_pgc = ET.SubElement(titles, "pgc")
 
-        # Add chapters as individual vob entries with chapter marks
+        # Keep one VOB per source while adding its independent interval markers.
         for i, chapter in enumerate(ordered_chapters, 1):
             # Normalize filename for DVD compatibility
             normalized_path = self._normalize_video_path(chapter.video_file.file_path)
-            ET.SubElement(title_pgc, "vob", file=str(normalized_path), chapters="0:00")
+            if chapter.chapter_offsets == (0,):
+                chapter_times = "0:00"
+            else:
+                chapter_times = ",".join(
+                    format_chapter_timestamp(offset)
+                    for offset in chapter.chapter_offsets
+                )
+            ET.SubElement(
+                title_pgc,
+                "vob",
+                file=str(normalized_path),
+                chapters=chapter_times,
+            )
 
         # Add DVDStyler-inspired post command for menu navigation
         if len(ordered_chapters) > 1:
@@ -877,11 +921,22 @@ class DVDAuthor(BaseService):
         # Get ASCII-safe filename
         ascii_filename = normalize_to_ascii(video_path.name)
 
-        # Create normalized path in same directory
-        normalized_path = video_path.parent / ascii_filename
+        if ascii_filename == video_path.name:
+            return video_path
 
-        # Copy file if normalization changed the name
-        if ascii_filename != video_path.name and not normalized_path.exists():
+        # Never write beside a local source. Use an identity-specific cache
+        # directory so equally named sources from different locations cannot
+        # collide.
+        path_identity = hashlib.sha256(
+            str(video_path.resolve()).encode("utf-8")
+        ).hexdigest()[:12]
+        normalized_dir = (
+            self.cache_manager.cache_dir / "normalized_videos" / path_identity
+        )
+        normalized_dir.mkdir(parents=True, exist_ok=True)
+        normalized_path = normalized_dir / ascii_filename
+
+        if not normalized_path.exists():
             self.logger.debug(
                 f"Copying video for ASCII compatibility: {ascii_filename}"
             )
