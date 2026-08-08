@@ -140,7 +140,7 @@ def test_title_inference_exact_command_basename_prompt_and_cache(tmp_path):
         assert inferrer.infer([video]) == ["Movie"]
 
     command = run.call_args.args[0]
-    assert command[:7] == [
+    assert command[:8] == [
         "/bin/codex",
         "exec",
         "--model",
@@ -148,6 +148,7 @@ def test_title_inference_exact_command_basename_prompt_and_cache(tmp_path):
         "--sandbox",
         "read-only",
         "--ephemeral",
+        "--skip-git-repo-check",
     ]
     assert "--cd" in command
     assert "--output-schema" in command
