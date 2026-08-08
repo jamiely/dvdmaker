@@ -317,6 +317,7 @@ class LocalTitleInferrer:
                     "--sandbox",
                     "read-only",
                     "--ephemeral",
+                    "--skip-git-repo-check",
                     "--cd",
                     str(temp_dir),
                     "--output-schema",
