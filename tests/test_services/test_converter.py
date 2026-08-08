@@ -489,7 +489,7 @@ class TestVideoConverter:
             temp_thumb.write_bytes(b"thumbnail content")
 
             # Create proper mock temp file objects with context manager support
-            def mock_temp_factory(suffix=None, delete=None):
+            def mock_temp_factory(suffix=None, delete=None, dir=None):
                 mock_file = Mock()
                 if suffix == ".mpg":
                     mock_file.name = str(temp_video)
@@ -510,6 +510,16 @@ class TestVideoConverter:
                 mock_rename.side_effect = side_effect
 
                 result = video_converter.convert_video(sample_video_file)
+
+            expected_temp_dir = (
+                video_converter.converted_cache_dir
+                / sample_video_file.metadata.video_id
+            )
+            assert len(mock_temp.call_args_list) == 2
+            assert all(
+                call.kwargs["dir"] == expected_temp_dir
+                for call in mock_temp.call_args_list
+            )
 
         assert isinstance(result, ConvertedVideoFile)
         assert result.metadata == sample_video_file.metadata
@@ -918,7 +928,7 @@ class TestVideoConverterCacheHandling:
             temp_video.write_bytes(b"new content")
             temp_thumb.write_bytes(b"thumb content")
 
-            def mock_temp_factory(suffix=None, delete=None):
+            def mock_temp_factory(suffix=None, delete=None, dir=None):
                 mock_file = Mock()
                 if suffix == ".mpg":
                     mock_file.name = str(temp_video)
