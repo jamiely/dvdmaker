@@ -760,10 +760,14 @@ class VideoConverter(BaseService):
         reuse_source = self._is_dvd_compatible(video_info)
 
         # Create temporary files for atomic operations
-        with tempfile.NamedTemporaryFile(suffix=".mpg", delete=False) as temp_video:
+        with tempfile.NamedTemporaryFile(
+            suffix=".mpg", delete=False, dir=output_dir
+        ) as temp_video:
             temp_video_path = Path(temp_video.name)
 
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_thumb:
+        with tempfile.NamedTemporaryFile(
+            suffix=".jpg", delete=False, dir=output_dir
+        ) as temp_thumb:
             temp_thumb_path = Path(temp_thumb.name)
 
         try:
