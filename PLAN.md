@@ -78,8 +78,7 @@ mode continues to validate/update yt-dlp.
 Development requires Python 3.10+ plus the media/authoring tools. On Ubuntu/WSL:
 
 ```bash
-sudo apt update
-sudo apt install -y python3-venv ffmpeg dvdauthor genisoimage lsdvd
+./scripts/setup.sh
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt

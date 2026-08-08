@@ -58,7 +58,16 @@ For development, also install development dependencies:
 pip install -r requirements-dev.txt
 ```
 
-4. Install the platform media and authoring prerequisites:
+4. On Ubuntu, Debian, or WSL, install all system prerequisites with:
+
+```bash
+./scripts/setup.sh
+```
+
+Use `./scripts/setup.sh --check` to verify an existing installation or
+`./scripts/setup.sh --dry-run` to preview the apt commands.
+
+Alternatively, install the platform media and authoring prerequisites manually:
 ```bash
 # macOS
 brew install ffmpeg dvdauthor dvdrtools
