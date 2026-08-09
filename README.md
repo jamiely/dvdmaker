@@ -113,6 +113,12 @@ Playback starts automatically by default. Start at the main menu instead:
 python -m src.main --input ./movie.mp4 --no-autoplay
 ```
 
+Add an optional line beneath the menu title:
+
+```bash
+python -m src.main --input ./movie.mp4 --menu-subtitle "Family movie night"
+```
+
 Files and directories can be mixed and repeated. Directory expansion occurs at
 that exact argument position, is non-recursive, and uses case-insensitive natural
 filename order:
@@ -164,6 +170,7 @@ are resolved and deduplicated while preserving their first occurrence.
 
 #### DVD Options
 - `--menu-title`: Custom DVD menu title (default: playlist/local source title)
+- `--menu-subtitle`: Optional text beneath the menu title (default: empty; also configurable with `DVDMAKER_MENU_SUBTITLE`)
 - `--no-iso`: Skip ISO image generation (ISO creation is enabled by default)
 - `--autoplay`: Explicitly retain the default behavior of starting playback on insertion
 - `--no-autoplay`: Show the main menu when the disc is inserted

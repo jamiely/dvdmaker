@@ -94,6 +94,10 @@ Examples:
         help="Custom DVD menu title (default: playlist/local source title)",
     )
     parser.add_argument(
+        "--menu-subtitle",
+        help="Optional subtitle shown below the DVD menu title (default: empty)",
+    )
+    parser.add_argument(
         "--video-format",
         choices=["NTSC", "PAL"],
         default="NTSC",
@@ -256,6 +260,8 @@ def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Se
     # DVD settings
     if args.menu_title:
         updates["menu_title"] = args.menu_title
+    if getattr(args, "menu_subtitle", None) is not None:
+        updates["menu_subtitle"] = args.menu_subtitle
     if args.video_format:
         updates["video_format"] = args.video_format
     if args.aspect_ratio:

@@ -84,6 +84,7 @@ def _author(
     autoplay=True,
     video_format="NTSC",
     aspect_ratio="16:9",
+    menu_subtitle="",
 ):
     settings = Settings(
         cache_dir=tmp_path / "cache",
@@ -97,6 +98,7 @@ def _author(
         autoplay=autoplay,
         video_format=video_format,
         aspect_ratio=aspect_ratio,
+        menu_subtitle=menu_subtitle,
     )
     cache = Mock()
     cache.cache_dir = settings.cache_dir
@@ -246,6 +248,59 @@ def test_main_menu_button_graph_matches_visible_actions(tmp_path):
     assert [button.name for button in two] == ["button01", "button02"]
     assert two[0].down == "button02"
     assert two[1].up == "button01"
+
+
+@pytest.mark.parametrize(
+    "subtitle,expected_text",
+    [
+        ("", ["Tangled 2010", "Play all", "Select chapter"]),
+        (
+            "Family movie night",
+            ["Tangled 2010", "Family movie night", "Play all", "Select chapter"],
+        ),
+    ],
+)
+def test_main_menu_subtitle_is_optional(tmp_path, subtitle, expected_text):
+    author = _author(tmp_path)
+    output = tmp_path / "main-menu.mpg"
+    draw = Mock()
+    draw.textlength.side_effect = lambda text, font: len(text)
+    draw.textbbox.return_value = (0, 0, 100, 20)
+
+    with (
+        patch("src.services.dvd_author.ImageDraw.Draw", return_value=draw),
+        patch.object(author, "_encode_menu_still"),
+    ):
+        author._create_menu_video(
+            tmp_path / "source.mpg",
+            output,
+            show_chapter_selection=True,
+            menu_title="Tangled 2010",
+            menu_subtitle=subtitle,
+        )
+
+    assert [call.args[1] for call in draw.text.call_args_list] == expected_text
+
+
+def test_configured_menu_subtitle_is_passed_to_main_menu_renderer(tmp_path):
+    author = _author(tmp_path, menu_subtitle="Family movie night")
+    structure = _structure(author, [_converted(tmp_path, 1, 1201)])
+    video_ts = tmp_path / "VIDEO_TS"
+    video_ts.mkdir()
+
+    with (
+        patch.object(author, "_create_menu_video") as render_main,
+        patch.object(
+            author,
+            "_create_chapter_menu_video",
+            side_effect=lambda entries, page_number, page_count, *_args, **_kwargs: (
+                author._chapter_page_buttons(entries, page_number, page_count)
+            ),
+        ),
+    ):
+        author._create_dvd_xml(structure, video_ts)
+
+    assert render_main.call_args.kwargs["menu_subtitle"] == "Family movie night"
 
 
 def test_partial_second_page_remote_navigation_reaches_back_and_previous(tmp_path):

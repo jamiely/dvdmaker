@@ -51,6 +51,27 @@ def test_chapter_interval_and_ai_title_environment(monkeypatch):
     assert settings.ai_titles is False
 
 
+def test_menu_subtitle_defaults_empty_and_cli_overrides_environment(monkeypatch):
+    monkeypatch.setenv("DVDMAKER_MENU_SUBTITLE", "From environment")
+    settings = Settings()
+    parser = create_argument_parser()
+
+    default_args = parser.parse_args(["--input", "one.mp4"])
+    custom_args = parser.parse_args(
+        ["--input", "one.mp4", "--menu-subtitle", "Family movie night"]
+    )
+    empty_args = parser.parse_args(["--input", "one.mp4", "--menu-subtitle", ""])
+
+    assert Settings(_env_file=None).menu_subtitle == "From environment"
+    assert merge_settings_with_args(default_args, settings).menu_subtitle == (
+        "From environment"
+    )
+    assert merge_settings_with_args(custom_args, settings).menu_subtitle == (
+        "Family movie night"
+    )
+    assert merge_settings_with_args(empty_args, settings).menu_subtitle == ""
+
+
 def test_cli_overrides_environment_for_new_settings(monkeypatch):
     monkeypatch.setenv("DVDMAKER_CHAPTER_INTERVAL_MINUTES", "12")
     monkeypatch.setenv("DVDMAKER_AI_TITLES", "true")

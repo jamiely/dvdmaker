@@ -93,6 +93,7 @@ class Settings(BaseSettings):
 
     # DVD settings
     menu_title: Optional[str] = Field(default=None)
+    menu_subtitle: str = Field(default="")
     generate_iso: bool = Field(default=True)
     video_format: str = Field(default="NTSC")
     aspect_ratio: str = Field(default="16:9")
