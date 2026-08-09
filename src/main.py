@@ -111,10 +111,19 @@ Examples:
         action="store_true",
         help="Skip ISO image generation (ISO creation is enabled by default)",
     )
-    parser.add_argument(
+    autoplay_group = parser.add_mutually_exclusive_group()
+    autoplay_group.add_argument(
         "--autoplay",
+        dest="autoplay",
         action="store_true",
-        help="Enable DVD autoplay (automatically start playing videos on insertion)",
+        default=None,
+        help="Start playback when the disc is inserted (default)",
+    )
+    autoplay_group.add_argument(
+        "--no-autoplay",
+        dest="autoplay",
+        action="store_false",
+        help="Show the main menu when the disc is inserted",
     )
     parser.add_argument(
         "--chapter-interval-minutes",
@@ -253,8 +262,8 @@ def merge_settings_with_args(args: argparse.Namespace, settings: Settings) -> Se
         updates["aspect_ratio"] = args.aspect_ratio
     if args.no_iso:
         updates["generate_iso"] = False
-    if args.autoplay:
-        updates["autoplay"] = True
+    if getattr(args, "autoplay", None) is not None:
+        updates["autoplay"] = args.autoplay
     if getattr(args, "chapter_interval_minutes", None) is not None:
         updates["chapter_interval_minutes"] = args.chapter_interval_minutes
     if getattr(args, "no_ai_titles", None):

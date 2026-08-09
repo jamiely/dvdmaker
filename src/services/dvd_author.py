@@ -11,8 +11,11 @@ This module handles creating DVD structures using dvdauthor, including:
 import hashlib
 import subprocess
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+
+from PIL import Image, ImageDraw, ImageFont, ImageStat
 
 from ..config.settings import Settings
 from ..exceptions import DVDMakerError
@@ -20,7 +23,7 @@ from ..models.dvd import DVDChapter, DVDStructure
 from ..models.video import VideoFile, VideoMetadata
 from ..services.cache_manager import CacheManager
 from ..services.converter import ConvertedVideoFile
-from ..services.spumux_service import SpumuxService
+from ..services.spumux_service import ButtonConfig, SpumuxService
 from ..services.tool_manager import ToolManager
 from ..utils.filename import normalize_to_ascii
 from ..utils.logging import get_logger
@@ -29,6 +32,12 @@ from .base import BaseService
 
 # Progress callback type
 ProgressCallback = Callable[[str, float], None]
+
+DEFAULT_SINGLE_VIDEO_CHAPTER_INTERVAL_MINUTES = 10
+CHAPTER_MENU_MIN_MARKERS = 3
+CHAPTERS_PER_MENU_PAGE = 6
+MAX_PROGRAMS_PER_TITLE_PGC = 255
+CHAPTER_MENU_STYLE_VERSION = "2"
 
 
 def generate_chapter_offsets(
@@ -48,7 +57,33 @@ def format_chapter_timestamp(seconds: int) -> str:
     return f"{hours}:{minutes:02d}:{seconds:02d}"
 
 
-DEFAULT_SINGLE_VIDEO_CHAPTER_INTERVAL_MINUTES = 10
+def minimum_interval_for_program_limit(
+    durations: Sequence[int], maximum_programs: int = MAX_PROGRAMS_PER_TITLE_PGC
+) -> Optional[int]:
+    """Find the smallest whole-minute interval that fits one title PGC."""
+    for interval_minutes in range(1, 121):
+        interval_seconds = interval_minutes * 60
+        marker_count = sum(
+            max(1, (max(0, duration) + interval_seconds - 1) // interval_seconds)
+            for duration in durations
+        )
+        if marker_count <= maximum_programs:
+            return interval_minutes
+    return None
+
+
+@dataclass(frozen=True)
+class ChapterMenuEntry:
+    """One selectable chapter marker and its source-local thumbnail location."""
+
+    chapter_number: int
+    source_index: int
+    source_offset: int
+    chapter_end: int
+    source_duration: int
+    source_video: Path
+    source_title: str
+    source_checksum: str
 
 
 class DVDAuthorError(DVDMakerError):
@@ -186,6 +221,7 @@ class DVDAuthor(BaseService):
         self.cache_manager = cache_manager
         self.spumux_service = spumux_service
         self.progress_callback = progress_callback
+        self._menu_button_configs: Dict[Path, Tuple[ButtonConfig, ...]] = {}
 
     def _create_playlist_output_dir(
         self, base_output_dir: Path, playlist_id: str
@@ -284,6 +320,20 @@ class DVDAuthor(BaseService):
             len(chapters),
             marker_count,
         )
+        if marker_count > MAX_PROGRAMS_PER_TITLE_PGC:
+            minimum_interval = minimum_interval_for_program_limit(
+                [chapter.duration for chapter in chapters]
+            )
+            if minimum_interval is None:
+                suggestion = "split the inputs across multiple discs"
+            else:
+                suggestion = (
+                    f"use --chapter-interval-minutes {minimum_interval} or greater"
+                )
+            raise DVDAuthoringError(
+                f"{marker_count} chapter markers exceed the DVD title limit of "
+                f"{MAX_PROGRAMS_PER_TITLE_PGC}; {suggestion}"
+            )
         total_size = sum(video.file_size for video in converted_videos)
 
         # Check DVD capacity
@@ -446,127 +496,492 @@ class DVDAuthor(BaseService):
         self,
         source_video: Path,
         output_path: Path,
-        duration: float = 30.0,
+        duration: float = 1.0,
         aspect_ratio: Optional[str] = None,
         is_vmgm: bool = True,
         show_chapter_selection: bool = True,
+        menu_title: str = "DVD",
     ) -> None:
-        """Create a menu video with DVDStyler-style text overlays using ffmpeg.
+        """Render the static main menu and encode it as a DVD menu MPEG."""
+        del source_video, duration
+        width, height = self._menu_dimensions()
+        still_path = output_path.with_suffix(".png")
+        image = Image.new("RGB", (width, height), (12, 18, 30))
+        draw = ImageDraw.Draw(image)
+        title_font = self._load_menu_font(self._scale_y(34), bold=True)
+        button_font = self._load_menu_font(self._scale_y(24), bold=True)
+        subtitle_font = self._load_menu_font(self._scale_y(16))
+        title = self._ellipsize(draw, menu_title, title_font, 560)
+        title_box = draw.textbbox((0, 0), title, font=title_font)
+        draw.text(
+            ((width - (title_box[2] - title_box[0])) // 2, self._scale_y(78)),
+            title,
+            font=title_font,
+            fill=(245, 248, 255),
+        )
+        draw.text(
+            (self._scale_x(100), self._scale_y(155)),
+            "DVD Video",
+            font=subtitle_font,
+            fill=(135, 158, 190),
+        )
+        configs = self._main_menu_buttons(show_chapter_selection)
+        for config in configs:
+            draw.rounded_rectangle(
+                (config.x0, config.y0, config.x1, config.y1),
+                radius=self._scale_y(8),
+                fill=(25, 38, 59),
+                outline=(67, 91, 128),
+                width=2,
+            )
+            draw.text(
+                (config.x0 + 14, config.y0 + self._scale_y(4)),
+                config.text,
+                font=button_font,
+                fill=(245, 248, 255),
+            )
+        if not is_vmgm:
+            self.logger.debug("Rendered legacy titleset menu through main-menu path")
+        image.save(still_path, "PNG")
+        self._encode_menu_still(
+            still_path, output_path, aspect_ratio or self.settings.aspect_ratio
+        )
 
-        Args:
-            source_video: Source video file to clip from
-            output_path: Output path for menu video
-            duration: Duration in seconds for menu clip
-            aspect_ratio: Target aspect ratio for menu video (defaults to settings)
-            is_vmgm: True for main menu, False for titleset menus
-            show_chapter_selection: Show source selection on the main menu
-        """
-        try:
-            ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
-
-            # Create resolution based on video format
-            if self.settings.video_format.upper() == "NTSC":
-                resolution = "720x480"
-                framerate = "29.97"
-            else:
-                resolution = "720x576"
-                framerate = "25"
-
-            # Create text overlays that match DVDStyler positioning
-            # Use robust font handling - fallback if Arial not found
-            font_path: Optional[str] = "/System/Library/Fonts/Arial.ttf"
-            try:
-                from pathlib import Path as FontPath
-
-                if font_path and not FontPath(font_path).exists():
-                    # Try common font alternatives
-                    alternatives = [
-                        "/System/Library/Fonts/Helvetica.ttc",
-                        "/System/Library/Fonts/System Font Regular.ttc",
-                        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                        "/usr/share/fonts/TTF/arial.ttf",
-                    ]
-                    for alt_font in alternatives:
-                        if FontPath(alt_font).exists():
-                            font_path = alt_font
-                            break
-                    else:
-                        # Use default font (no fontfile parameter)
-                        font_path = None
-            except Exception:
-                font_path = None
-
-            if is_vmgm:
-                # Position main-menu text at DVDStyler locations.
-                font_spec = f"fontfile={font_path}:" if font_path else ""
-                drawtext_filter = (
-                    f"drawtext={font_spec}"
-                    "text='Play all':fontsize=18:fontcolor=white:"
-                    "x=120:y=286:enable='between(t,0,30)'"
+    def _main_menu_buttons(
+        self, show_chapter_selection: bool
+    ) -> Tuple[ButtonConfig, ...]:
+        """Return visible main-menu buttons and their remote navigation."""
+        play_down = "button02" if show_chapter_selection else "button01"
+        buttons = [
+            ButtonConfig(
+                "button01",
+                "Play all",
+                (self._scale_x(210), self._scale_y(286)),
+                (self._scale_x(220), self._scale_y(40)),
+                "g0=1;jump title 1;",
+                down=play_down,
+            )
+        ]
+        if show_chapter_selection:
+            buttons.append(
+                ButtonConfig(
+                    "button02",
+                    "Select chapter",
+                    (self._scale_x(210), self._scale_y(342)),
+                    (self._scale_x(260), self._scale_y(40)),
+                    "g0=0;jump titleset 1 menu entry ptt;",
+                    up="button01",
                 )
-                if show_chapter_selection:
-                    drawtext_filter += (
-                        f",drawtext={font_spec}"
-                        "text='Select chapter':fontsize=18:fontcolor=white:"
-                        "x=120:y=312:enable='between(t,0,30)'"
+            )
+        return tuple(buttons)
+
+    @staticmethod
+    def _flatten_chapter_menu_entries(
+        chapters: Sequence[DVDChapter],
+    ) -> List[ChapterMenuEntry]:
+        """Map every source-local marker to its global DVD chapter number."""
+        entries: List[ChapterMenuEntry] = []
+        chapter_number = 1
+        for source_index, chapter in enumerate(chapters, 1):
+            for offset_index, source_offset in enumerate(chapter.chapter_offsets):
+                chapter_end = (
+                    chapter.chapter_offsets[offset_index + 1]
+                    if offset_index + 1 < len(chapter.chapter_offsets)
+                    else chapter.duration
+                )
+                entries.append(
+                    ChapterMenuEntry(
+                        chapter_number=chapter_number,
+                        source_index=source_index,
+                        source_offset=source_offset,
+                        chapter_end=chapter_end,
+                        source_duration=chapter.duration,
+                        source_video=chapter.video_file.file_path,
+                        source_title=chapter.title,
+                        source_checksum=chapter.video_file.checksum,
                     )
-            else:
-                # Titleset menu - simpler for now
-                font_spec = f"fontfile={font_path}:" if font_path else ""
-                drawtext_filter = (
-                    f"drawtext={font_spec}"
-                    "text='Back':fontsize=14:fontcolor=white:"
-                    "x=56:y=360:enable='between(t,0,30)'"
                 )
+                chapter_number += 1
+        return entries
 
-            # Create menu video with text overlays
-            cmd = ffmpeg_cmd + [
+    @staticmethod
+    def _paginate_chapter_entries(
+        entries: Sequence[ChapterMenuEntry],
+    ) -> List[Tuple[ChapterMenuEntry, ...]]:
+        return [
+            tuple(entries[index : index + CHAPTERS_PER_MENU_PAGE])
+            for index in range(0, len(entries), CHAPTERS_PER_MENU_PAGE)
+        ]
+
+    def _chapter_page_buttons(
+        self,
+        entries: Sequence[ChapterMenuEntry],
+        page_number: int,
+        page_count: int,
+    ) -> Tuple[ButtonConfig, ...]:
+        """Build a six-item grid plus Back/Previous/Next controls."""
+        configs: List[ButtonConfig] = []
+        entry_count = len(entries)
+        for index, entry in enumerate(entries):
+            row, column = divmod(index, 3)
+            name = f"button{index + 1:02d}"
+            left = f"button{index:02d}" if column > 0 else name
+            right = (
+                f"button{index + 2:02d}"
+                if column < 2 and index + 1 < entry_count
+                else name
+            )
+            up = f"button{index - 2:02d}" if row > 0 else name
+            down_index = index + 3
+            down = (
+                f"button{down_index + 1:02d}"
+                if down_index < entry_count
+                else "button07"
+            )
+            cell_left = 65 + column * 205
+            cell_top = 82 + row * 150
+            configs.append(
+                ButtonConfig(
+                    name,
+                    f"Chapter {entry.chapter_number}",
+                    (self._scale_x(cell_left + 90), self._scale_y(cell_top + 65)),
+                    (self._scale_x(180), self._scale_y(130)),
+                    f"g0=0;jump title 1 chapter {entry.chapter_number};",
+                    left=left,
+                    right=right,
+                    up=up,
+                    down=down,
+                )
+            )
+
+        bottom_y = self._scale_y(423)
+        last_grid = f"button{entry_count:02d}"
+        nav_right = (
+            "button08"
+            if page_number > 1
+            else ("button09" if page_number < page_count else last_grid)
+        )
+        configs.append(
+            ButtonConfig(
+                "button07",
+                "Back to menu",
+                (self._scale_x(120), bottom_y),
+                (self._scale_x(180), self._scale_y(38)),
+                "g0=0;jump vmgm menu 1;",
+                right=nav_right,
+                up=last_grid,
+            )
+        )
+        if page_number > 1:
+            configs.append(
+                ButtonConfig(
+                    "button08",
+                    "← Previous",
+                    (self._scale_x(340), bottom_y),
+                    (self._scale_x(170), self._scale_y(38)),
+                    f"g0=0;jump menu {page_number};",
+                    left="button07",
+                    right="button09" if page_number < page_count else "button08",
+                    up=last_grid,
+                )
+            )
+        if page_number < page_count:
+            configs.append(
+                ButtonConfig(
+                    "button09",
+                    "Next →",
+                    (self._scale_x(570), bottom_y),
+                    (self._scale_x(170), self._scale_y(38)),
+                    f"g0=0;jump menu {page_number + 2};",
+                    left="button08" if page_number > 1 else "button07",
+                    up=last_grid,
+                )
+            )
+        return tuple(configs)
+
+    def _create_chapter_menu_video(
+        self,
+        entries: Sequence[ChapterMenuEntry],
+        page_number: int,
+        page_count: int,
+        menu_title: str,
+        output_path: Path,
+        multiple_sources: bool,
+    ) -> Tuple[ButtonConfig, ...]:
+        """Render a 3x2 thumbnail page and encode it as a menu MPEG."""
+        width, height = self._menu_dimensions()
+        image = Image.new("RGB", (width, height), (12, 18, 30))
+        draw = ImageDraw.Draw(image)
+        title_font = self._load_menu_font(self._scale_y(25), bold=True)
+        label_font = self._load_menu_font(self._scale_y(15), bold=True)
+        small_font = self._load_menu_font(self._scale_y(12))
+        nav_font = self._load_menu_font(self._scale_y(16), bold=True)
+        page_title = f"{menu_title} — Chapters {page_number}/{page_count}"
+        page_title = self._ellipsize(draw, page_title, title_font, 630)
+        draw.text(
+            (self._scale_x(55), self._scale_y(28)),
+            page_title,
+            font=title_font,
+            fill=(245, 248, 255),
+        )
+        configs = self._chapter_page_buttons(entries, page_number, page_count)
+        for index, entry in enumerate(entries):
+            row, column = divmod(index, 3)
+            cell_left = self._scale_x(65 + column * 205)
+            cell_top = self._scale_y(82 + row * 150)
+            thumb_width = self._scale_x(180)
+            thumb_height = self._scale_y(96)
+            thumbnail = self._chapter_thumbnail(entry, thumb_width, thumb_height)
+            with Image.open(thumbnail) as source_image:
+                image.paste(source_image.convert("RGB"), (cell_left, cell_top))
+            draw.rectangle(
+                (
+                    cell_left,
+                    cell_top,
+                    cell_left + thumb_width - 1,
+                    cell_top + thumb_height - 1,
+                ),
+                outline=(75, 94, 122),
+                width=2,
+            )
+            label = f"Chapter {entry.chapter_number}"
+            if multiple_sources:
+                label = self._ellipsize(draw, entry.source_title, label_font, 178)
+            draw.text(
+                (cell_left + 2, cell_top + thumb_height + self._scale_y(3)),
+                label,
+                font=label_font,
+                fill=(245, 248, 255),
+            )
+            timestamp = self._menu_timestamp(entry.source_offset)
+            if multiple_sources:
+                timestamp = f"Chapter {entry.chapter_number}  •  {timestamp}"
+            draw.text(
+                (cell_left + 2, cell_top + thumb_height + self._scale_y(21)),
+                timestamp,
+                font=small_font,
+                fill=(150, 170, 198),
+            )
+        for config in configs[len(entries) :]:
+            draw.rounded_rectangle(
+                (config.x0, config.y0, config.x1, config.y1),
+                radius=self._scale_y(6),
+                fill=(25, 38, 59),
+                outline=(67, 91, 128),
+                width=2,
+            )
+            draw.text(
+                (config.x0 + 10, config.y0 + self._scale_y(6)),
+                config.text,
+                font=nav_font,
+                fill=(245, 248, 255),
+            )
+        still_path = output_path.with_suffix(".png")
+        image.save(still_path, "PNG")
+        self._encode_menu_still(still_path, output_path, self.settings.aspect_ratio)
+        return configs
+
+    def _chapter_thumbnail(
+        self, entry: ChapterMenuEntry, width: int, height: int
+    ) -> Path:
+        """Extract and cache a frame one second after a chapter boundary."""
+        identity = "|".join(
+            (
+                CHAPTER_MENU_STYLE_VERSION,
+                entry.source_checksum,
+                str(entry.source_offset),
+                str(width),
+                str(height),
+                self.settings.video_format,
+                self.settings.aspect_ratio,
+            )
+        )
+        asset_key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        thumbnail_dir = self.cache_manager.cache_dir / "menu_assets" / "thumbnails"
+        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+        thumbnail_path = thumbnail_dir / f"{asset_key}.png"
+        if thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
+            return thumbnail_path
+        ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
+        filter_chain = (
+            "scale='trunc(iw*sar/2)*2':ih,setsar=1,"
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
+        )
+        maximum_seek = max(entry.source_offset, entry.chapter_end - 1)
+        candidates = tuple(
+            dict.fromkeys(
+                min(entry.source_offset + delta, maximum_seek)
+                for delta in (1, 3, 5, 10)
+            )
+        )
+        last_error: Optional[Exception] = None
+        for seek_seconds in candidates:
+            command = ffmpeg_cmd + [
+                "-ss",
+                str(seek_seconds),
                 "-i",
-                str(source_video),
-                "-t",
-                str(duration),  # Duration of clip
+                str(entry.source_video),
+                "-map",
+                "0:v:0",
+                "-frames:v",
+                "1",
                 "-vf",
-                drawtext_filter,  # Add text overlays
-                "-c:v",
-                "mpeg2video",  # DVD video codec
-                "-c:a",
-                "ac3",  # DVD audio codec
-                "-b:v",
-                "8000k",  # High bitrate for menu (like DVDStyler)
-                "-b:a",
-                "192k",  # Standard AC3 bitrate
-                "-r",
-                framerate,
-                "-s",
-                resolution,
-                "-aspect",
-                aspect_ratio if aspect_ratio else self.settings.aspect_ratio,
-                "-f",
-                "dvd",
-                "-y",  # Overwrite output
-                str(output_path),
+                filter_chain,
+                "-y",
+                str(thumbnail_path),
             ]
-
-            self.logger.debug(
-                f"Creating {'VMGM' if is_vmgm else 'titleset'} menu video: "
-                f"{output_path.name}"
+            try:
+                subprocess.run(command, capture_output=True, text=True, check=True)
+                if thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
+                    if self._thumbnail_has_picture(thumbnail_path):
+                        return thumbnail_path
+            except (OSError, subprocess.CalledProcessError) as exc:
+                last_error = exc
+        if thumbnail_path.exists() and thumbnail_path.stat().st_size > 0:
+            return thumbnail_path
+        if last_error:
+            self.logger.warning(
+                "Could not extract thumbnail for chapter %d: %s",
+                entry.chapter_number,
+                last_error,
             )
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        placeholder = Image.new("RGB", (width, height), (28, 39, 56))
+        placeholder_draw = ImageDraw.Draw(placeholder)
+        placeholder_font = self._load_menu_font(max(12, self._scale_y(18)), bold=True)
+        placeholder_draw.text(
+            (width // 2, height // 2),
+            self._menu_timestamp(entry.source_offset),
+            anchor="mm",
+            font=placeholder_font,
+            fill=(190, 205, 226),
+        )
+        placeholder.save(thumbnail_path, "PNG")
+        return thumbnail_path
 
-            if result.stderr:
-                self.logger.debug(f"ffmpeg menu creation stderr: {result.stderr}")
+    @staticmethod
+    def _thumbnail_has_picture(thumbnail_path: Path) -> bool:
+        """Reject effectively black frames so an early chapter retry can be used."""
+        with Image.open(thumbnail_path) as image:
+            luminance = ImageStat.Stat(image.convert("L")).mean[0]
+        return luminance >= 12
 
-        except subprocess.CalledProcessError as e:
-            self.logger.warning(f"Failed to create menu video {output_path}: {e}")
-            # Create a minimal black video as fallback
-            self._create_black_menu_video(
-                output_path, duration, aspect_ratio or self.settings.aspect_ratio
-            )
-        except Exception as e:
-            self.logger.warning(f"Menu video creation error: {e}")
-            self._create_black_menu_video(
-                output_path, duration, aspect_ratio or self.settings.aspect_ratio
-            )
+    def _encode_menu_still(
+        self, still_path: Path, output_path: Path, aspect_ratio: str
+    ) -> None:
+        """Encode a rendered still with silent AC-3 as a compliant menu MPEG."""
+        ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
+        is_ntsc = self.settings.video_format == "NTSC"
+        framerate = "30000/1001" if is_ntsc else "25"
+        gop = "18" if is_ntsc else "15"
+        command = ffmpeg_cmd + [
+            "-loop",
+            "1",
+            "-framerate",
+            framerate,
+            "-i",
+            str(still_path),
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=48000",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-t",
+            "1",
+            "-c:v",
+            "mpeg2video",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            framerate,
+            "-g",
+            gop,
+            "-b:v",
+            "6000k",
+            "-maxrate",
+            "9000k",
+            "-bufsize",
+            "1835008",
+            "-c:a",
+            "ac3",
+            "-ar",
+            "48000",
+            "-b:a",
+            "192k",
+            "-muxrate",
+            "10080k",
+            "-packetsize",
+            "2048",
+            "-aspect",
+            aspect_ratio,
+            "-shortest",
+            "-f",
+            "dvd",
+            "-y",
+            str(output_path),
+        ]
+        try:
+            subprocess.run(command, capture_output=True, text=True, check=True)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise DVDAuthoringError(
+                f"Failed to encode DVD menu {output_path.name}: {exc}"
+            ) from exc
+
+    def _menu_dimensions(self) -> Tuple[int, int]:
+        return (720, 480 if self.settings.video_format == "NTSC" else 576)
+
+    @staticmethod
+    def _scale_x(value: int) -> int:
+        return value
+
+    def _scale_y(self, value: int) -> int:
+        return value if self.settings.video_format == "NTSC" else round(value * 1.2)
+
+    @staticmethod
+    def _load_menu_font(
+        size: int, bold: bool = False
+    ) -> Union[ImageFont.FreeTypeFont, ImageFont.ImageFont]:
+        candidates = [
+            (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+                if bold
+                else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+            ),
+            (
+                "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"
+                if bold
+                else "/usr/share/fonts/TTF/DejaVuSans.ttf"
+            ),
+        ]
+        for candidate in candidates:
+            if Path(candidate).exists():
+                return ImageFont.truetype(candidate, size=size)
+        return ImageFont.load_default()
+
+    @staticmethod
+    def _ellipsize(
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        font: Union[ImageFont.FreeTypeFont, ImageFont.ImageFont],
+        maximum_width: int,
+    ) -> str:
+        if draw.textlength(text, font=font) <= maximum_width:
+            return text
+        shortened = text
+        while shortened and draw.textlength(f"{shortened}…", font=font) > maximum_width:
+            shortened = shortened[:-1]
+        return f"{shortened}…" if shortened else "…"
+
+    @staticmethod
+    def _menu_timestamp(seconds: int) -> str:
+        hours, remainder = divmod(max(0, seconds), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes}:{seconds:02d}"
 
     def _create_black_menu_video(
         self, output_path: Path, duration: float = 0.5, aspect_ratio: str = ""
@@ -610,59 +1025,31 @@ class DVDAuthor(BaseService):
             self.logger.error(f"Failed to create fallback menu video: {e}")
 
     def _create_button_overlays(self, playlist_output_dir: Path) -> None:
-        """Create button overlays for menu videos using spumux service.
-
-        Args:
-            playlist_output_dir: Playlist output directory containing menu videos
-        """
+        """Create every registered hotspot, failing before authoring dead menus."""
+        if not self._menu_button_configs:
+            self.logger.debug("No interactive menu videos were registered")
+            return
         if not self.spumux_service:
-            self.logger.debug("No spumux service available - skipping button overlays")
-            return
-
-        if not self.spumux_service.is_available():
-            self.logger.warning(
-                "Spumux service not available - skipping button overlays"
+            raise DVDAuthoringError(
+                "Spumux service is required for interactive DVD menus"
             )
-            return
-
-        temp_dir = self.cache_manager.cache_dir / "temp_menus"
-        if not temp_dir.exists():
-            self.logger.debug(
-                "No temporary menu directory found - skipping button overlays"
-            )
-            return
-
-        # Find menu video files
-        menu_files = list(temp_dir.glob("menu*.mpg"))
-        if not menu_files:
-            self.logger.debug("No menu video files found - skipping button overlays")
-            return
 
         self.logger.info(
-            f"Creating button overlays for {len(menu_files)} menu video(s)"
+            "Creating button overlays for %d menu video(s)",
+            len(self._menu_button_configs),
         )
-
-        # Create button overlays for each menu video
-        for menu_file in menu_files:
-            try:
-                self.logger.debug(f"Creating button overlay for: {menu_file.name}")
-                overlay = self.spumux_service.create_button_overlay(
-                    menu_file, playlist_output_dir
+        for menu_file, configs in self._menu_button_configs.items():
+            overlay = self.spumux_service.create_button_overlay(
+                menu_file,
+                playlist_output_dir,
+                button_configs=configs,
+                asset_key=menu_file.stem,
+                strict=True,
+            )
+            if not overlay:
+                raise DVDAuthoringError(
+                    f"Failed to create interactive buttons for {menu_file.name}"
                 )
-
-                if overlay:
-                    self.logger.debug(
-                        f"Button overlay created successfully for {menu_file.name}: "
-                        f"button='{overlay.button_config.text}'"
-                    )
-                else:
-                    self.logger.debug(f"No button overlay created for {menu_file.name}")
-
-            except Exception as e:
-                self.logger.warning(
-                    f"Failed to create button overlay for {menu_file.name}: {e}"
-                )
-                # Continue with other menus - don't fail entire DVD creation
 
     def _cleanup_temp_menu_files(self, playlist_output_dir: Path) -> None:
         """Clean up temporary menu files after DVD creation."""
@@ -677,257 +1064,144 @@ class DVDAuthor(BaseService):
                 self.logger.warning(f"Failed to clean up temporary menu files: {e}")
 
     def _create_dvd_xml(self, dvd_structure: DVDStructure, video_ts_dir: Path) -> Path:
-        """Create dvdauthor XML configuration with DVDStyler-inspired menu structure.
-
-        Args:
-            dvd_structure: DVD structure to create XML for
-            video_ts_dir: VIDEO_TS directory path
-
-        Returns:
-            Path to created XML file
-        """
+        """Create autoplay plus a paginated thumbnail chapter browser."""
         self.logger.debug(f"Creating dvdauthor XML for '{dvd_structure.menu_title}'")
-
-        # Create XML structure with optional jumppad for autoplay
-        if self.settings.autoplay:
-            # jumppad=0 enables First Play Program Chain for autoplay
-            dvdauthor = ET.Element("dvdauthor", dest=str(video_ts_dir), jumppad="0")
-        else:
-            dvdauthor = ET.Element("dvdauthor", dest=str(video_ts_dir))
-
-        # Determine video format for DVD
-        video_format = self.settings.video_format.lower()  # dvdauthor expects lowercase
-
-        ordered_chapters = dvd_structure.get_chapters_ordered()
-        # Create menu files in cache to avoid polluting output directory
+        dvdauthor = ET.Element("dvdauthor", dest=str(video_ts_dir))
+        video_format = self.settings.video_format.lower()
+        aspect_ratio = self.settings.aspect_ratio
+        chapters = dvd_structure.get_chapters_ordered()
+        entries = self._flatten_chapter_menu_entries(chapters)
+        show_chapter_menu = len(entries) >= CHAPTER_MENU_MIN_MARKERS
+        pages = self._paginate_chapter_entries(entries) if show_chapter_menu else []
         temp_dir = self.cache_manager.cache_dir / "temp_menus"
         temp_dir.mkdir(parents=True, exist_ok=True)
+        self._menu_button_configs = {}
 
-        # Create VMGM (Video Manager Menu) like DVDStyler
         vmgm = ET.SubElement(dvdauthor, "vmgm")
-        menus = ET.SubElement(vmgm, "menus")
-
-        # Add video and audio specifications for VMGM
-        # DVDStyler analysis shows 16:9 throughout works better for car compatibility
-        vmgm_aspect = self.settings.aspect_ratio
-
-        if self.settings.car_dvd_compatibility:
-            self.logger.debug(
-                f"Car DVD compatibility mode: using consistent {vmgm_aspect} "
-                f"aspect ratio throughout (matches DVDStyler approach)"
-            )
-
-        # Create video element with aspect ratio (only add widescreen for 16:9)
-        if vmgm_aspect == "16:9":
-            ET.SubElement(
-                menus,
-                "video",
-                format=video_format,
-                aspect=vmgm_aspect,
-                widescreen="nopanscan",
-            )
-        else:
-            ET.SubElement(
-                menus,
-                "video",
-                format=video_format,
-                aspect=vmgm_aspect,
-            )
-        ET.SubElement(menus, "audio", lang="EN")
-
-        # Add subtitle support
-        subpicture = ET.SubElement(menus, "subpicture", lang="EN")
-        ET.SubElement(
-            subpicture,
-            "stream",
-            id="0",
-            mode="widescreen" if vmgm_aspect == "16:9" else "normal",
+        if self.settings.autoplay:
+            ET.SubElement(vmgm, "fpc").text = "g0=1;jump title 1;"
+        vmgm_menus = ET.SubElement(vmgm, "menus")
+        self._add_menu_media_declarations(vmgm_menus, video_format, aspect_ratio)
+        main_pgc = ET.SubElement(vmgm_menus, "pgc", entry="title")
+        main_file = temp_dir / "menu0-0.mpg"
+        self._create_menu_video(
+            chapters[0].video_file.file_path,
+            main_file,
+            aspect_ratio=aspect_ratio,
+            is_vmgm=True,
+            show_chapter_selection=show_chapter_menu,
+            menu_title=dvd_structure.menu_title,
         )
-        if vmgm_aspect == "16:9":
-            ET.SubElement(subpicture, "stream", id="1", mode="letterbox")
-
-        pgc = ET.SubElement(menus, "pgc", entry="title")
-
-        # Create VMGM menu with video (essential for car DVD compatibility)
-        if ordered_chapters:
-            # Create VMGM menu video (like DVDStyler's menu0-0.mpg)
-            vmgm_menu_file = temp_dir / "menu0-0.mpg"
-            self._create_menu_video(
-                ordered_chapters[0].video_file.file_path,
-                vmgm_menu_file,
-                aspect_ratio=vmgm_aspect,
-                is_vmgm=True,
-                show_chapter_selection=len(ordered_chapters) > 1,
+        main_buttons = self._main_menu_buttons(show_chapter_menu)
+        for button in main_buttons:
+            ET.SubElement(main_pgc, "button", name=button.name).text = (
+                button.navigation_command
             )
+        ET.SubElement(main_pgc, "vob", file=str(main_file), pause="inf")
+        self._menu_button_configs[main_file] = main_buttons
 
-            # Add buttons for navigation (DVDStyler structure)
-            ET.SubElement(pgc, "button", name="button01").text = "g0=1;jump title 1;"
-            if len(ordered_chapters) > 1:
-                ET.SubElement(pgc, "button", name="button02").text = (
-                    "g0=0;jump titleset 1 menu;"
-                )
-
-            # Add menu video and DVDStyler-style navigation
-            ET.SubElement(pgc, "vob", file=str(vmgm_menu_file), pause="inf")
-            ET.SubElement(pgc, "pre").text = "g1=101;"
-        else:
-            # Fallback to simple jump if no chapters
-            ET.SubElement(pgc, "pre").text = "jump title 1;"
-
-        # Create titleset
         titleset = ET.SubElement(dvdauthor, "titleset")
+        titleset_menus = ET.SubElement(titleset, "menus")
+        self._add_menu_media_declarations(titleset_menus, video_format, aspect_ratio)
+        root_pgc = ET.SubElement(titleset_menus, "pgc", entry="root")
+        ET.SubElement(root_pgc, "pre").text = "jump vmgm menu 1;"
 
-        # Add titleset menus if we have multiple chapters (like DVDStyler)
-        if len(ordered_chapters) > 1:
-            titleset_menus = ET.SubElement(titleset, "menus")
-
-            # Video and audio specs for titleset menus (only add widescreen for 16:9)
-            if self.settings.aspect_ratio == "16:9":
-                ET.SubElement(
-                    titleset_menus,
-                    "video",
-                    format=video_format,
-                    aspect=self.settings.aspect_ratio,
-                    widescreen="nopanscan",
-                )
+        multiple_sources = len(chapters) > 1
+        for page_number, page_entries in enumerate(pages, 1):
+            if page_number == 1:
+                page_pgc = ET.SubElement(titleset_menus, "pgc", entry="ptt")
             else:
-                ET.SubElement(
-                    titleset_menus,
-                    "video",
-                    format=video_format,
-                    aspect=self.settings.aspect_ratio,
+                page_pgc = ET.SubElement(titleset_menus, "pgc")
+            menu_file = temp_dir / f"menu1-{page_number - 1}.mpg"
+            page_buttons = self._create_chapter_menu_video(
+                page_entries,
+                page_number,
+                len(pages),
+                dvd_structure.menu_title,
+                menu_file,
+                multiple_sources,
+            )
+            for button in page_buttons:
+                ET.SubElement(page_pgc, "button", name=button.name).text = (
+                    button.navigation_command
                 )
-            ET.SubElement(titleset_menus, "audio", lang="EN")
+            ET.SubElement(page_pgc, "vob", file=str(menu_file), pause="inf")
+            self._menu_button_configs[menu_file] = page_buttons
 
-            # Subtitle support
-            ts_subpicture = ET.SubElement(titleset_menus, "subpicture", lang="EN")
-            ET.SubElement(
-                ts_subpicture,
-                "stream",
-                id="0",
-                mode="widescreen" if self.settings.aspect_ratio == "16:9" else "normal",
-            )
-            if self.settings.aspect_ratio == "16:9":
-                ET.SubElement(ts_subpicture, "stream", id="1", mode="letterbox")
-
-            menu_pgc = ET.SubElement(titleset_menus, "pgc", entry="ptt,root")
-
-            # Create titleset menu video (like DVDStyler's menu1-0.mpg)
-            titleset_menu_file = temp_dir / "menu1-0.mpg"
-            # Use second video or first if only one
-            menu_source = (
-                ordered_chapters[1]
-                if len(ordered_chapters) > 1
-                else ordered_chapters[0]
-            )
-            self._create_menu_video(
-                menu_source.video_file.file_path,
-                titleset_menu_file,
-                aspect_ratio=self.settings.aspect_ratio,
-                is_vmgm=False,
-            )
-
-            # Create chapter navigation buttons (limit to 6 like DVDStyler's first menu)
-            max_buttons = min(len(ordered_chapters), 6)
-            source_chapter_targets: List[int] = []
-            next_global_chapter = 1
-            for source_chapter in ordered_chapters:
-                source_chapter_targets.append(next_global_chapter)
-                next_global_chapter += len(source_chapter.chapter_offsets)
-            for i in range(max_buttons):
-                button_name = f"button{i+1:02d}"
-                if i == 0:
-                    # First button plays from beginning (DVDStyler style)
-                    button_text = "g0=0;jump title 1;"
-                else:
-                    # Other buttons jump to specific chapters
-                    chapter_num = source_chapter_targets[i]
-                    button_text = f"g0=0;jump title 1 chapter {chapter_num};"
-                ET.SubElement(menu_pgc, "button", name=button_name).text = button_text
-
-            # Add navigation buttons
-            ET.SubElement(menu_pgc, "button", name="button07").text = (
-                "g0=0;jump vmgm menu 1;"
-            )
-
-            # Add menu video and DVDStyler-style pre command
-            ET.SubElement(menu_pgc, "vob", file=str(titleset_menu_file), pause="inf")
-            pre_text = (
-                "if (g1 & 0x8000 !=0) {g1^=0x8000;if (g1==101) jump vmgm menu 1;}g1=1;"
-            )
-            ET.SubElement(menu_pgc, "pre").text = pre_text
-
-        # Create titles section
         titles = ET.SubElement(titleset, "titles")
-
-        # Add video format to titles (only add widescreen for 16:9)
-        if self.settings.aspect_ratio == "16:9":
+        if aspect_ratio == "16:9":
             ET.SubElement(
                 titles,
                 "video",
                 format=video_format,
-                aspect=self.settings.aspect_ratio,
+                aspect=aspect_ratio,
                 widescreen="nopanscan",
             )
         else:
-            ET.SubElement(
-                titles,
-                "video",
-                format=video_format,
-                aspect=self.settings.aspect_ratio,
-            )
+            ET.SubElement(titles, "video", format=video_format, aspect=aspect_ratio)
         ET.SubElement(titles, "audio", lang="EN")
-
         title_pgc = ET.SubElement(titles, "pgc")
-
-        # Keep one VOB per source while adding its independent interval markers.
-        for i, chapter in enumerate(ordered_chapters, 1):
-            # Normalize filename for DVD compatibility
+        for chapter in chapters:
             normalized_path = self._normalize_video_path(chapter.video_file.file_path)
-            if chapter.chapter_offsets == (0,):
-                chapter_times = "0:00"
-            else:
-                chapter_times = ",".join(
+            chapter_times = (
+                "0:00"
+                if chapter.chapter_offsets == (0,)
+                else ",".join(
                     format_chapter_timestamp(offset)
                     for offset in chapter.chapter_offsets
                 )
+            )
             ET.SubElement(
                 title_pgc,
                 "vob",
                 file=str(normalized_path),
                 chapters=chapter_times,
             )
+        ET.SubElement(title_pgc, "post").text = "call menu entry root;"
 
-        # Add DVDStyler-inspired post command for menu navigation
-        if len(ordered_chapters) > 1:
-            ET.SubElement(title_pgc, "post").text = "g1|=0x8000; call menu entry root;"
-
-        # Write XML to cache directory to avoid polluting output directory
         cache_dir = self.cache_manager.cache_dir / "build"
         cache_dir.mkdir(parents=True, exist_ok=True)
         xml_file = cache_dir / "dvd_structure.xml"
-
-        # Pretty print the XML for debugging
         import xml.dom.minidom
 
         rough_string = ET.tostring(dvdauthor, encoding="utf-8")
-        reparsed = xml.dom.minidom.parseString(rough_string)
-        pretty_xml = reparsed.toprettyxml(indent="  ", encoding="utf-8")
-
-        # Write pretty formatted XML
-        with open(xml_file, "wb") as f:
-            f.write(pretty_xml)
-
-        self.logger.debug(
-            "Created DVDStyler-inspired dvdauthor XML with autoplay navigation: "
-            f"{xml_file}"
+        pretty_xml = xml.dom.minidom.parseString(rough_string).toprettyxml(
+            indent="  ", encoding="utf-8"
         )
-        if len(ordered_chapters) > 1:
-            self.logger.info(
-                f"Generated autoplay navigation for {len(ordered_chapters)} chapters"
-            )
-
+        with open(xml_file, "wb") as output_file:
+            output_file.write(pretty_xml)
+        self.logger.info(
+            "Generated %d chapter-menu page(s) for %d marker(s)",
+            len(pages),
+            len(entries),
+        )
         return xml_file
+
+    @staticmethod
+    def _add_menu_media_declarations(
+        menus: ET.Element, video_format: str, aspect_ratio: str
+    ) -> None:
+        """Declare identical video/audio/subpicture mappings for a menu domain."""
+        if aspect_ratio == "16:9":
+            ET.SubElement(
+                menus,
+                "video",
+                format=video_format,
+                aspect=aspect_ratio,
+                widescreen="nopanscan",
+            )
+        else:
+            ET.SubElement(menus, "video", format=video_format, aspect=aspect_ratio)
+        ET.SubElement(menus, "audio", lang="EN")
+        subpicture = ET.SubElement(menus, "subpicture", lang="EN")
+        ET.SubElement(
+            subpicture,
+            "stream",
+            id="0",
+            mode="widescreen" if aspect_ratio == "16:9" else "normal",
+        )
+        if aspect_ratio == "16:9":
+            ET.SubElement(subpicture, "stream", id="1", mode="letterbox")
 
     def _normalize_video_path(self, video_path: Path) -> Path:
         """Normalize video file path for DVD compatibility.

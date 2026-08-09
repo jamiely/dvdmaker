@@ -62,8 +62,9 @@ All services use constructor-based dependency injection, receiving dependencies 
 - **Key Features**:
   - DVD VIDEO_TS structure generation using dvdauthor
   - DVDStyler-compatible menu creation with autoplay functionality
-  - Interactive button overlays with visual feedback states
-  - Chapter support for navigation
+  - Paginated 3x2 chapter-thumbnail grids with global chapter targets
+  - Interactive multi-button overlays with directional navigation and visual states
+  - First Program Chain autoplay plus explicit menu-return routing
   - Clean ISO image generation (AUDIO_TS/VIDEO_TS only, no build artifacts)
   - DVD capacity validation and warnings
   - Car DVD player compatibility (Honda Odyssey 2016 confirmed)
@@ -92,11 +93,12 @@ All services use constructor-based dependency injection, receiving dependencies 
 #### SpumuxService
 - **Purpose**: Create DVDStyler-compatible interactive DVD menu buttons
 - **Key Features**:
-  - DVDStyler exact button positioning for car DVD compatibility
-  - PIL-based button graphic generation (normal, highlight, select states)
-  - Spumux XML configuration with autoplay navigation commands
+  - Arbitrary per-menu button lists with explicit directional neighbors
+  - PIL-based multi-button graphics (normal, highlight, select states)
+  - Unique Spumux XML/assets per VMGM or titleset menu page
+  - Widescreen and letterbox subpicture multiplexing
   - Clean build artifact management (cache-based temp directories)
-  - Graceful degradation when spumux unavailable
+  - Fail-fast behavior when interactive controls cannot be multiplexed
   - Car DVD player testing and validation
 - **Dependencies**: Settings, CacheManager, ToolManager
 
@@ -439,7 +441,7 @@ dvdmaker/
 - **Service-Based Design**: SpumuxService follows the established BaseService pattern with dependency injection
 - **Cache-Based Build Management**: All XML and temp files isolated in cache directories (not output)
 - **Clean ISO Output**: Final DVDs contain only AUDIO_TS/VIDEO_TS (no build artifacts)
-- **Graceful Degradation**: DVDs created successfully even when spumux unavailable
+- **Interactive Integrity**: Menu authoring fails clearly when Spumux cannot create working hotspots
 
 **Technical Implementation**:
 ```python

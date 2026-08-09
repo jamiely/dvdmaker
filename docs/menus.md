@@ -294,7 +294,7 @@ cache_buttons_dir = self.cache_manager.cache_dir / "temp_buttons"
 **4. Complete Integration** ✅
 - **DVDAuthor Integration**: Seamless integration with existing DVD authoring workflow
 - **Menu Video Processing**: Spumux processes menu videos to embed button overlays
-- **Graceful Degradation**: DVDs still created if spumux unavailable (without buttons)
+- **Integrity Check**: Authoring stops if visible controls cannot receive hotspots
 
 #### Testing Results
 
@@ -305,46 +305,31 @@ cache_buttons_dir = self.cache_manager.cache_dir / "temp_buttons"
 - **Autoplay Magic**: `g0=1;jump title 1;` successfully enables automatic playback
 
 **Quality Metrics**:
-- **Test Coverage**: 727 tests passing (includes 26 new spumux service tests)
-- **Code Quality**: All linting, formatting, and type checking passes
+- **Automated Coverage**: Menu thresholds, pagination, navigation commands,
+  thumbnail caching/fallback, multi-button overlays, PAL/NTSC, and autoplay
 - **Build Clean**: Zero build artifacts in final ISO files
 
 ### Current Menu System Architecture
 
-Our implementation creates a **simplified single-menu system** optimized for car DVD compatibility:
+DVD Maker now authors the same multi-level pattern used by DVDStyler:
 
-**Menu Structure**:
-- **VMGM Menu**: Single "Play all" button with DVDStyler positioning
-- **Autoplay**: Enabled via `g0=1` navigation command
-- **Visual States**: Normal, highlight, select button graphics
-- **Navigation**: Self-referencing button (prevents navigation issues)
+- The VMGM menu always provides Play all and adds Select chapter when the disc
+  has at least three authored markers.
+- An explicit First Program Chain starts playback by default. `--no-autoplay`
+  allows the implicit first-menu behavior instead.
+- Titleset menu pages contain a 3x2 thumbnail grid for six chapter markers.
+- Button 07 returns to the VMGM menu; buttons 08 and 09 move between pages.
+- Chapter commands target cumulative global chapter numbers while thumbnails are
+  extracted from the correct source-local offsets.
+- Root-menu and end-of-title paths return to the VMGM menu.
+- Every page has independent normal, highlight, and selected overlays. Widescreen
+  menus multiplex both widescreen and letterbox subpicture mappings.
+- Missing thumbnails become timestamp placeholders, while missing button tooling
+  is a hard authoring error so dead controls are never shipped.
 
-**Comparison to DVDStyler**:
-
-| Feature | DVDStyler (Multi-Menu) | DVD Maker (Single Menu) | Status |
-|---------|------------------------|---------------------------|---------|
-| Button Positioning | ✅ (120,286)-(219,310) | ✅ (120,286)-(218,310) | ✅ Match |
-| Autoplay Command | ✅ g0=1;jump title 1; | ✅ g0=1;jump title 1; | ✅ Match |
-| Button Text | ✅ "Play all" | ✅ "Play all" | ✅ Match |
-| Car Compatibility | ✅ Confirmed | ✅ Confirmed | ✅ Success |
-| ISO Cleanliness | ⚠️ Contains build files | ✅ Clean AUDIO_TS/VIDEO_TS only | ✅ Better |
-
-### Future Enhancement Opportunities
-
-**Multi-Menu Pagination** (Optional):
-- Implement DVDStyler's 6-menu pagination system for 36+ videos
-- Add "Select chapter" button for individual video navigation
-- Grid layout with video thumbnails (buttons 01-06 per menu)
-
-**Enhanced Visual Design**:
-- Video thumbnail integration in button graphics  
-- Background video generation from playlist content
-- Advanced button highlighting effects
-
-**Navigation Improvements**:
-- Multi-directional button navigation (up/down/left/right)
-- Previous/Next menu page navigation
-- Return to main menu functionality
+Thumbnail and menu assets live under the cache tree. Their identity includes the
+source checksum, local chapter offset, video format, aspect ratio, and menu style
+version, so re-authoring can reuse unchanged frames.
 
 ### Key Success Factors
 
