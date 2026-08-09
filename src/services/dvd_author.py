@@ -48,6 +48,9 @@ def format_chapter_timestamp(seconds: int) -> str:
     return f"{hours}:{minutes:02d}:{seconds:02d}"
 
 
+DEFAULT_SINGLE_VIDEO_CHAPTER_INTERVAL_MINUTES = 10
+
+
 class DVDAuthorError(DVDMakerError):
     """Base exception for DVD authoring errors."""
 
@@ -379,6 +382,18 @@ class DVDAuthor(BaseService):
 
         chapters = []
         current_time = 0
+        chapter_interval = self.settings.chapter_interval_minutes
+        if (
+            chapter_interval is None
+            and len(converted_videos) == 1
+            and converted_videos[0].duration
+            > DEFAULT_SINGLE_VIDEO_CHAPTER_INTERVAL_MINUTES * 60
+        ):
+            chapter_interval = DEFAULT_SINGLE_VIDEO_CHAPTER_INTERVAL_MINUTES
+            self.logger.info(
+                "Using automatic %d-minute chapters for the single long video",
+                chapter_interval,
+            )
 
         for i, video in enumerate(converted_videos, 1):
             # Create updated metadata with actual converted video duration
@@ -405,7 +420,7 @@ class DVDAuthor(BaseService):
                 video_file=video_file,
                 start_time=current_time,
                 chapter_offsets=generate_chapter_offsets(
-                    video.duration, self.settings.chapter_interval_minutes
+                    video.duration, chapter_interval
                 ),
             )
 
@@ -434,6 +449,7 @@ class DVDAuthor(BaseService):
         duration: float = 30.0,
         aspect_ratio: Optional[str] = None,
         is_vmgm: bool = True,
+        show_chapter_selection: bool = True,
     ) -> None:
         """Create a menu video with DVDStyler-style text overlays using ffmpeg.
 
@@ -443,6 +459,7 @@ class DVDAuthor(BaseService):
             duration: Duration in seconds for menu clip
             aspect_ratio: Target aspect ratio for menu video (defaults to settings)
             is_vmgm: True for main menu, False for titleset menus
+            show_chapter_selection: Show source selection on the main menu
         """
         try:
             ffmpeg_cmd = self.tool_manager.get_tool_command("ffmpeg")
@@ -480,17 +497,19 @@ class DVDAuthor(BaseService):
                 font_path = None
 
             if is_vmgm:
-                # VMGM menu with "Play all" and "Select chapter" text
-                # Position text at DVDStyler locations
+                # Position main-menu text at DVDStyler locations.
                 font_spec = f"fontfile={font_path}:" if font_path else ""
                 drawtext_filter = (
                     f"drawtext={font_spec}"
                     "text='Play all':fontsize=18:fontcolor=white:"
-                    "x=120:y=286:enable='between(t,0,30)',"
-                    f"drawtext={font_spec}"
-                    "text='Select chapter':fontsize=18:fontcolor=white:"
-                    "x=120:y=312:enable='between(t,0,30)'"
+                    "x=120:y=286:enable='between(t,0,30)'"
                 )
+                if show_chapter_selection:
+                    drawtext_filter += (
+                        f",drawtext={font_spec}"
+                        "text='Select chapter':fontsize=18:fontcolor=white:"
+                        "x=120:y=312:enable='between(t,0,30)'"
+                    )
             else:
                 # Titleset menu - simpler for now
                 font_spec = f"fontfile={font_path}:" if font_path else ""
@@ -738,6 +757,7 @@ class DVDAuthor(BaseService):
                 vmgm_menu_file,
                 aspect_ratio=vmgm_aspect,
                 is_vmgm=True,
+                show_chapter_selection=len(ordered_chapters) > 1,
             )
 
             # Add buttons for navigation (DVDStyler structure)

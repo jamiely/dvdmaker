@@ -160,7 +160,7 @@ are resolved and deduplicated while preserving their first occurrence.
 - `--menu-title`: Custom DVD menu title (default: playlist/local source title)
 - `--no-iso`: Skip ISO image generation (ISO creation is enabled by default)
 - `--autoplay`: Enable DVD autoplay functionality with DVDStyler-compatible "Play all" button (car DVD player compatible)
-- `--chapter-interval-minutes`: Add markers every 1-120 minutes within each source
+- `--chapter-interval-minutes`: Override chapter spacing with 1-120 minutes within each source
 
 #### Cache Options
 - `--force-download`: Force re-download all video files and refresh playlist data, even if cached
@@ -243,10 +243,13 @@ Technical specifications:
 - **Compatibility**: Playable on standard DVD players, car DVD systems, and software players
 
 Interval markers are available through a player's next/previous chapter controls.
+A disc containing one video longer than 10 minutes defaults to markers every 10
+minutes. An explicit `--chapter-interval-minutes` value overrides that spacing.
 The visual source-selection menu remains source-oriented and limited to six source
-buttons; it does not add a button for every interval marker. Omitting the option
-continues to emit the legacy `chapters="0:00"` marker. Changing the interval only
-requires re-authoring `VIDEO_TS` and the ISO.
+buttons; it does not add a button for every interval marker. With multiple source
+videos, omitting the option continues to emit one initial marker per source. A
+single video of 10 minutes or less also retains only its initial marker. Changing
+the interval only requires re-authoring `VIDEO_TS` and the ISO.
 
 ### Local title privacy and defaults
 
