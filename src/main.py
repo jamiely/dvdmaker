@@ -120,7 +120,10 @@ Examples:
         "--chapter-interval-minutes",
         type=int,
         metavar="MINUTES",
-        help="Add chapter markers every 1-120 minutes within each source",
+        help=(
+            "Override chapter spacing with 1-120 minutes within each source "
+            "(one video over 10 minutes defaults to 10)"
+        ),
     )
     parser.add_argument(
         "--no-ai-titles",

@@ -58,10 +58,12 @@ expensive re-encode.
 ## Chapters and menus
 
 `--chapter-interval-minutes` and `DVDMAKER_CHAPTER_INTERVAL_MINUTES` accept 1–120.
-Omission emits the existing `chapters="0:00"`. Enabling it independently emits
-0, interval, 2 × interval, and so on strictly before each converted source
-duration, formatted as deterministic `H:MM:SS` values. Missing or zero duration
-safely yields the initial marker only.
+One source longer than 10 minutes defaults to a 10-minute interval when neither is
+set. An explicit value overrides that default. Multiple sources, and one source of
+10 minutes or less, retain only their initial markers when the setting is omitted.
+Enabled intervals emit 0, interval, 2 × interval, and so on strictly before each
+converted source duration, formatted as deterministic `H:MM:SS` values. Missing or
+zero duration safely yields the initial marker only.
 
 Each source remains one `DVDChapter` model entry and one `<vob>`; interval markers
 do not split or duplicate MPEG files. Menu source jumps use a cumulative map to
