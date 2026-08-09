@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from unittest.mock import Mock, patch
 
 import pytest
+from PIL import Image
 
 from src.config.settings import Settings
 from src.services.spumux_service import (
@@ -312,20 +313,20 @@ class TestSpumuxService:
     @patch("src.services.spumux_service.subprocess.run")
     def test_execute_spumux_success(self, mock_run, spumux_service, tmp_path):
         """Test _execute_spumux successful execution."""
-        # Set up mock
         mock_result = Mock()
         mock_result.stderr = b"spumux completed"
-        mock_run.return_value = mock_result
+
+        def write_processed_video(*_args, **kwargs):
+            kwargs["stdout"].write(b"processed menu")
+            return mock_result
+
+        mock_run.side_effect = write_processed_video
 
         # Create input files
         xml_file = tmp_path / "config.xml"
         xml_file.touch()
         menu_video = tmp_path / "menu.mpg"
         menu_video.touch()
-
-        # Create processed video file that spumux would create
-        processed_video = tmp_path / "menu_with_buttons.mpv"
-        processed_video.touch()
 
         subtitle_files = spumux_service._execute_spumux(xml_file, menu_video, tmp_path)
 
@@ -434,6 +435,91 @@ class TestSpumuxService:
 
             # Should return None instead of raising exception
             assert overlay is None
+
+    def test_strict_overlay_failure_never_authors_dead_controls(
+        self, spumux_service, tmp_path
+    ):
+        with patch.object(spumux_service, "is_available", return_value=False):
+            with pytest.raises(SpumuxNotAvailableError, match="required"):
+                spumux_service.create_button_overlay(
+                    tmp_path / "menu.mpg", tmp_path, strict=True
+                )
+
+    def test_multi_button_xml_preserves_hotspots_and_remote_neighbors(
+        self, spumux_service, tmp_path
+    ):
+        spumux_service.cache_manager.cache_dir = tmp_path / "cache"
+        configs = (
+            ButtonConfig(
+                "button01",
+                "One",
+                (100, 100),
+                (80, 40),
+                "jump title 1 chapter 1;",
+                right="button02",
+                down="button07",
+            ),
+            ButtonConfig(
+                "button02",
+                "Two",
+                (200, 100),
+                (80, 40),
+                "jump title 1 chapter 2;",
+                left="button01",
+                down="button07",
+            ),
+        )
+        graphics = tuple(tmp_path / name for name in ("n.png", "h.png", "s.png"))
+        for graphic in graphics:
+            graphic.touch()
+        xml_file = spumux_service._generate_spumux_xml(
+            configs, graphics, tmp_path, asset_key="menu1-0"
+        )
+        assert xml_file.name == "menu1-0_spumux.xml"
+        buttons = ET.parse(xml_file).findall(".//button")
+        assert [button.attrib["name"] for button in buttons] == [
+            "button01",
+            "button02",
+        ]
+        assert buttons[0].attrib["right"] == "button02"
+        assert buttons[0].attrib["down"] == "button07"
+        assert buttons[1].attrib["left"] == "button01"
+
+    def test_pal_multi_button_graphics_cover_full_menu_resolution(
+        self, mock_tool_manager, mock_cache_manager, tmp_path
+    ):
+        mock_cache_manager.cache_dir = tmp_path / "cache"
+        service = SpumuxService(
+            Settings(video_format="PAL"), mock_tool_manager, mock_cache_manager
+        )
+        configs = (
+            ButtonConfig("button01", "One", (100, 100), (80, 40), "jump title 1;"),
+            ButtonConfig("button02", "Two", (200, 100), (80, 40), "jump title 1;"),
+        )
+        normal, highlight, selected = service._create_button_graphics(
+            configs, tmp_path / "graphics"
+        )
+        assert Image.open(normal).size == (720, 576)
+        assert Image.open(highlight).getbbox() is not None
+        assert Image.open(selected).getbbox() is not None
+
+    @patch("src.services.spumux_service.subprocess.run")
+    def test_widescreen_overlay_is_multiplexed_for_both_display_streams(
+        self, run, spumux_service, tmp_path
+    ):
+        menu = tmp_path / "menu.mpg"
+        menu.write_bytes(b"original")
+        xml_file = tmp_path / "buttons.xml"
+        xml_file.touch()
+
+        def write_processed(command, **kwargs):
+            kwargs["stdout"].write(f"stream-{command[5]}".encode())
+            return Mock(stderr=b"")
+
+        run.side_effect = write_processed
+        spumux_service._execute_spumux(xml_file, menu, tmp_path, stream_ids=(0, 1))
+        assert [call.args[0][5] for call in run.call_args_list] == ["0", "1"]
+        assert menu.read_bytes() == b"stream-1"
 
 
 class TestSpumuxServiceIntegration:

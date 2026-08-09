@@ -68,8 +68,23 @@ zero duration safely yields the initial marker only.
 Each source remains one `DVDChapter` model entry and one `<vob>`; interval markers
 do not split or duplicate MPEG files. Menu source jumps use a cumulative map to
 global DVD chapter numbers, so a later source still targets its beginning after
-earlier interval markers. The visual menu remains limited to six source buttons.
-Interval markers are reached using next/previous chapter controls.
+earlier interval markers.
+
+Playback starts automatically through an explicit DVD First Program Chain;
+`--no-autoplay` instead displays the main menu on insertion. The main menu always
+offers Play all and adds Select chapter only when there are at least three total
+markers. Pressing the title's root-menu control and reaching the end of the title
+return to the main menu.
+
+Chapter selection flattens every per-source offset into chronological global DVD
+chapter entries. Each page displays a 3x2 grid of up to six cached thumbnails,
+sampled one second after its boundary when possible and retried slightly later
+when that frame is effectively black, plus a number/timestamp and optional source
+title. Back, Previous, and Next buttons provide paginated remote
+navigation. Thumbnail failures use a timestamp placeholder. Spumux or button-layer
+failure aborts authoring instead of producing visible controls that do nothing.
+Chapter counts beyond one title PGC's 255-program limit fail with a suggested
+larger interval or instruction to split the disc.
 
 ## Tooling and verification
 
@@ -91,6 +106,6 @@ make check
 Acceptance uses generated local media first with `--no-ai-titles`, followed by
 the requested real local file with AI titles and a 10-minute interval. Inspect
 the retained `VIDEO_TS` and ISO with `lsdvd`, `dvdunauthor`, and `ffprobe`, then
-verify play-all, next/previous, source-menu targets, and menu-return behavior in
+verify play-all, next/previous, thumbnail targets, pagination, and menu-return behavior in
 a DVD-aware player. A physical-player smoke test remains the final compatibility
 check.

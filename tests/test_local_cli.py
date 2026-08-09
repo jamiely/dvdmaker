@@ -63,6 +63,23 @@ def test_cli_overrides_environment_for_new_settings(monkeypatch):
     assert merged.ai_titles is False
 
 
+def test_autoplay_is_default_and_no_autoplay_is_an_explicit_override():
+    parser = create_argument_parser()
+    default_args = parser.parse_args(["--input", "one.mp4"])
+    menu_args = parser.parse_args(["--input", "one.mp4", "--no-autoplay"])
+    assert default_args.autoplay is None
+    assert merge_settings_with_args(default_args, Settings()).autoplay is True
+    assert menu_args.autoplay is False
+    assert merge_settings_with_args(menu_args, Settings()).autoplay is False
+
+
+def test_autoplay_flags_are_mutually_exclusive():
+    with pytest.raises(SystemExit):
+        create_argument_parser().parse_args(
+            ["--input", "one.mp4", "--autoplay", "--no-autoplay"]
+        )
+
+
 @pytest.mark.parametrize("value", [0, 121])
 def test_settings_reject_invalid_chapter_interval(value):
     with pytest.raises(ValidationError):

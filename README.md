@@ -6,11 +6,11 @@ Author physical DVDs from YouTube playlists or local video files.
 
 - **Video Downloading**: Download YouTube playlists using yt-dlp with intelligent caching
 - **Local Media**: Accept repeatable file and directory inputs without modifying the sources
-- **Automatic Chapters**: Add optional per-source interval markers for next/previous navigation
+- **Automatic Chapters**: Add interval markers with paginated visual chapter selection
 - **Video Processing**: Convert videos to DVD-compatible format using ffmpeg with advanced car DVD player compatibility
 - **DVD Authoring**: Create DVD structure with interactive menus and DVDStyler-compatible autoplay functionality
 - **Car DVD Compatibility**: Confirmed working on Honda Odyssey 2016 and other car DVD players with automatic playback
-- **Interactive DVD Menus**: DVDStyler-compatible "Play all" button with visual feedback (normal, highlight, select states)
+- **Interactive DVD Menus**: Six-thumbnail chapter pages with remote navigation, pagination, and visual feedback
 - **Clean ISO Generation**: Professional ISOs containing only AUDIO_TS/VIDEO_TS directories (no build artifacts)
 - **Smart Caching**: Intelligent file caching to avoid redundant operations with comprehensive cleanup tools
 - **Filename Normalization**: ASCII filename normalization for DVD compatibility
@@ -107,6 +107,12 @@ One local video with 10-minute chapter markers:
 python -m src.main --input ./movie.mp4 --chapter-interval-minutes 10
 ```
 
+Playback starts automatically by default. Start at the main menu instead:
+
+```bash
+python -m src.main --input ./movie.mp4 --no-autoplay
+```
+
 Files and directories can be mixed and repeated. Directory expansion occurs at
 that exact argument position, is non-recursive, and uses case-insensitive natural
 filename order:
@@ -159,7 +165,8 @@ are resolved and deduplicated while preserving their first occurrence.
 #### DVD Options
 - `--menu-title`: Custom DVD menu title (default: playlist/local source title)
 - `--no-iso`: Skip ISO image generation (ISO creation is enabled by default)
-- `--autoplay`: Enable DVD autoplay functionality with DVDStyler-compatible "Play all" button (car DVD player compatible)
+- `--autoplay`: Explicitly retain the default behavior of starting playback on insertion
+- `--no-autoplay`: Show the main menu when the disc is inserted
 - `--chapter-interval-minutes`: Override chapter spacing with 1-120 minutes within each source
 
 #### Cache Options
@@ -226,7 +233,10 @@ Creates complete DVD structures using dvdauthor with DVDStyler-compatible menus:
 - **DVD Structure Creation**: Generates VIDEO_TS directory structure with proper IFO/BUP/VOB files
 - **Chapter Organization**: Combines multiple videos into a single title with sequential chapters (maintains playlist order)
 - **Interval Navigation**: Each source independently receives markers at 0, interval, 2 × interval, and so on, strictly before its converted duration
-- **Interactive Menu System**: DVDStyler-compatible "Play all" button with visual feedback states (normal, highlight, select)
+- **Autoplay by Default**: A First Program Chain starts the title immediately; `--no-autoplay` starts at the main menu
+- **Interactive Menu System**: "Play all" plus a chapter browser when at least three total markers exist
+- **Thumbnail Pages**: Six selectable chapter thumbnails per page with Back, Previous, and Next controls
+- **Remote Menu Return**: The title's root-menu path and end-of-title action return to the main menu
 - **Car DVD Player Compatibility**: Confirmed working autoplay functionality on Honda Odyssey 2016 and other car players
 - **Professional ISO Output**: Clean ISOs containing only AUDIO_TS/VIDEO_TS directories (no build artifacts)
 - **Capacity Management**: Automatically excludes videos when content exceeds standard DVD capacity (4.7GB) with detailed warnings
@@ -237,19 +247,20 @@ Creates complete DVD structures using dvdauthor with DVDStyler-compatible menus:
 Technical specifications:
 - **DVD Format**: Single-layer DVD structure (4.7GB capacity)
 - **Title Structure**: Single title with sequential source videos and chapter markers
-- **Menu System**: DVDStyler-compatible autoplay menu with spumux-generated button overlays
-- **Autoplay Magic**: `g0=1;jump title 1;` navigation command enables automatic playback
-- **Button Positioning**: DVDStyler exact coordinates (120,286)-(218,310) for maximum car compatibility
+- **Menu System**: Static DVD-compliant MPEG menus with cached thumbnails and Spumux-generated multi-button overlays
+- **Autoplay**: An explicit First Program Chain runs `g0=1;jump title 1;`
+- **Chapter Pages**: A 3x2 grid maps source-local offsets to cumulative global DVD chapter numbers
 - **Compatibility**: Playable on standard DVD players, car DVD systems, and software players
 
-Interval markers are available through a player's next/previous chapter controls.
-A disc containing one video longer than 10 minutes defaults to markers every 10
-minutes. An explicit `--chapter-interval-minutes` value overrides that spacing.
-The visual source-selection menu remains source-oriented and limited to six source
-buttons; it does not add a button for every interval marker. With multiple source
-videos, omitting the option continues to emit one initial marker per source. A
-single video of 10 minutes or less also retains only its initial marker. Changing
-the interval only requires re-authoring `VIDEO_TS` and the ISO.
+Interval markers remain available through a player's next/previous controls. A
+disc containing one video longer than 10 minutes defaults to markers every 10
+minutes; an explicit `--chapter-interval-minutes` value overrides that spacing.
+When there are at least three markers across the disc, the main menu adds Select
+chapter and every marker receives a thumbnail button. Pages contain up to six
+buttons and continue in chronological order across source boundaries. With one or
+two markers, the main menu contains only Play all. Multiple source videos without
+an explicit interval continue to receive one initial marker each. Changing chapter
+spacing or menu labels re-authors the menus and disc without re-encoding media.
 
 ### Local title privacy and defaults
 
