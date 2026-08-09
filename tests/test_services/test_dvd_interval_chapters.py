@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageChops
 
 from src.config.settings import Settings
 from src.models.dvd import DVDStructure
@@ -280,6 +280,30 @@ def test_main_menu_subtitle_is_optional(tmp_path, subtitle, expected_text):
         )
 
     assert [call.args[1] for call in draw.text.call_args_list] == expected_text
+
+
+def test_main_menu_subtitle_band_is_blank_by_default_and_visible_when_set(tmp_path):
+    author = _author(tmp_path)
+
+    def render(subtitle, filename):
+        output = tmp_path / filename
+        with patch.object(author, "_encode_menu_still"):
+            author._create_menu_video(
+                tmp_path / "source.mpg",
+                output,
+                show_chapter_selection=True,
+                menu_title="Tangled 2010",
+                menu_subtitle=subtitle,
+            )
+        with Image.open(output.with_suffix(".png")) as image:
+            return image.crop((0, 145, 720, 185)).copy()
+
+    blank_band = render("", "blank.mpg")
+    subtitle_band = render("Family movie night", "subtitle.mpg")
+    background = Image.new("RGB", blank_band.size, (12, 18, 30))
+
+    assert ImageChops.difference(blank_band, background).getbbox() is None
+    assert ImageChops.difference(subtitle_band, background).getbbox() is not None
 
 
 def test_configured_menu_subtitle_is_passed_to_main_menu_renderer(tmp_path):
