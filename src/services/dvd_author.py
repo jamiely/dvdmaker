@@ -501,6 +501,7 @@ class DVDAuthor(BaseService):
         is_vmgm: bool = True,
         show_chapter_selection: bool = True,
         menu_title: str = "DVD",
+        menu_subtitle: str = "",
     ) -> None:
         """Render the static main menu and encode it as a DVD menu MPEG."""
         del source_video, duration
@@ -510,7 +511,6 @@ class DVDAuthor(BaseService):
         draw = ImageDraw.Draw(image)
         title_font = self._load_menu_font(self._scale_y(34), bold=True)
         button_font = self._load_menu_font(self._scale_y(24), bold=True)
-        subtitle_font = self._load_menu_font(self._scale_y(16))
         title = self._ellipsize(draw, menu_title, title_font, 560)
         title_box = draw.textbbox((0, 0), title, font=title_font)
         draw.text(
@@ -519,12 +519,19 @@ class DVDAuthor(BaseService):
             font=title_font,
             fill=(245, 248, 255),
         )
-        draw.text(
-            (self._scale_x(100), self._scale_y(155)),
-            "DVD Video",
-            font=subtitle_font,
-            fill=(135, 158, 190),
-        )
+        if menu_subtitle:
+            subtitle_font = self._load_menu_font(self._scale_y(16))
+            subtitle = self._ellipsize(draw, menu_subtitle, subtitle_font, 520)
+            subtitle_box = draw.textbbox((0, 0), subtitle, font=subtitle_font)
+            draw.text(
+                (
+                    (width - (subtitle_box[2] - subtitle_box[0])) // 2,
+                    self._scale_y(155),
+                ),
+                subtitle,
+                font=subtitle_font,
+                fill=(135, 158, 190),
+            )
         configs = self._main_menu_buttons(show_chapter_selection)
         for config in configs:
             draw.rounded_rectangle(
@@ -1091,6 +1098,7 @@ class DVDAuthor(BaseService):
             is_vmgm=True,
             show_chapter_selection=show_chapter_menu,
             menu_title=dvd_structure.menu_title,
+            menu_subtitle=self.settings.menu_subtitle,
         )
         main_buttons = self._main_menu_buttons(show_chapter_menu)
         for button in main_buttons:

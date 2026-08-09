@@ -76,6 +76,9 @@ offers Play all and adds Select chapter only when there are at least three total
 markers. Pressing the title's root-menu control and reaching the end of the title
 return to the main menu.
 
+The main menu has no subtitle by default. `--menu-subtitle` or
+`DVDMAKER_MENU_SUBTITLE` may add an optional secondary line beneath the menu title.
+
 Chapter selection flattens every per-source offset into chronological global DVD
 chapter entries. Each page displays a 3x2 grid of up to six cached thumbnails,
 sampled one second after its boundary when possible and retried slightly later
