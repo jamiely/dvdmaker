@@ -1,5 +1,11 @@
 # Project agent guidance
 
+## Git workflow
+
+- Commit and push directly to `main` by default for this repository.
+- Use a feature branch or pull request only when the user explicitly requests
+  one.
+
 ## Keep the DVD Maker skill current
 
 - When CLI options, defaults, setup steps, authoring behavior, output layout, or
