@@ -154,7 +154,8 @@ class VideoConverter(BaseService):
     AUDIO_CODEC = "ac3"
     AUDIO_BITRATE = "448k"
     VIDEO_BITRATE = "6000k"
-    CONVERSION_PROFILE_VERSION = "dvd-mpeg2-v2"
+    CONVERSION_PROFILE_VERSION = "dvd-mpeg2-v3"
+    DEFAULT_SINGLE_VIDEO_CHAPTER_INTERVAL_SECONDS = 10 * 60
 
     def __init__(
         self,
@@ -406,6 +407,23 @@ class VideoConverter(BaseService):
             and str(audio.get("sample_rate")) == "48000"
         )
 
+    def _source_needs_chapter_aligned_keyframes(self, video_file: VideoFile) -> bool:
+        """Return whether source reuse would risk imprecise chapter seeks."""
+        if self.settings.chapter_interval_minutes:
+            return True
+        return (
+            video_file.metadata.duration
+            > self.DEFAULT_SINGLE_VIDEO_CHAPTER_INTERVAL_SECONDS
+        )
+
+    def _should_reuse_dvd_compatible_source(
+        self, video_file: VideoFile, video_info: Dict[str, Any]
+    ) -> bool:
+        """Reuse only when DVD compliance and chapter seek precision are both safe."""
+        return self._is_dvd_compatible(
+            video_info
+        ) and not self._source_needs_chapter_aligned_keyframes(video_file)
+
     def _build_conversion_command(
         self,
         input_path: Path,
@@ -481,6 +499,8 @@ class VideoConverter(BaseService):
             "1",
             "-g",
             gop_size,
+            "-force_key_frames",
+            "expr:gte(t,n_forced*60)",
             "-bf",
             "0" if car_profile else "2",
             "-c:a",
@@ -757,7 +777,7 @@ class VideoConverter(BaseService):
 
         converted_file = output_dir / f"{video_id}_dvd.mpg"
         thumbnail_file = output_dir / f"{video_id}_thumb.jpg"
-        reuse_source = self._is_dvd_compatible(video_info)
+        reuse_source = self._should_reuse_dvd_compatible_source(video_file, video_info)
 
         # Create temporary files for atomic operations
         with tempfile.NamedTemporaryFile(

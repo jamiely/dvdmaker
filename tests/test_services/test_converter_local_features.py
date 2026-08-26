@@ -26,10 +26,10 @@ def converter(tmp_path):
     return VideoConverter(settings, tools, Mock())
 
 
-def _source(tmp_path, checksum="source-checksum"):
+def _source(tmp_path, checksum="source-checksum", duration=180):
     path = tmp_path / "source.mp4"
     path.write_bytes(b"source")
-    metadata = VideoMetadata("source-id", "Source", 180, path.resolve().as_uri())
+    metadata = VideoMetadata("source-id", "Source", duration, path.resolve().as_uri())
     return VideoFile(metadata, path, path.stat().st_size, checksum, "mp4")
 
 
@@ -100,6 +100,36 @@ def test_ffmpeg_profile(
     assert command[command.index("-b:a") + 1] == abit
     assert "aresample=async=1:first_pts=0" in command
     assert "-muxrate" in command and "-packetsize" in command
+
+
+def test_conversion_forces_minute_keyframes_for_precise_chapter_seeks(
+    converter, tmp_path
+):
+    command = converter._build_conversion_command(
+        tmp_path / "in.mkv", tmp_path / "out.mpg", "720x480", "30000/1001"
+    )
+
+    assert command[command.index("-force_key_frames") + 1] == "expr:gte(t,n_forced*60)"
+
+
+def test_dvd_compatible_source_with_interval_chapters_is_reencoded(converter):
+    converter.settings.chapter_interval_minutes = 10
+    assert not converter._should_reuse_dvd_compatible_source(
+        _source(Path("/tmp")), _info()
+    )
+
+
+def test_dvd_compatible_short_source_without_interval_chapters_can_be_reused(converter):
+    assert converter._should_reuse_dvd_compatible_source(_source(Path("/tmp")), _info())
+
+
+def test_dvd_compatible_long_source_is_reencoded_for_default_single_video_chapters(
+    converter,
+):
+    source = _source(Path("/tmp"), duration=601)
+    assert not converter._should_reuse_dvd_compatible_source(
+        source, _info(duration="601.0")
+    )
 
 
 def test_dvd_compatible_source_requires_every_stream_property(converter):
